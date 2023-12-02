@@ -48,7 +48,7 @@ class CalibreUpdatesIter():
             if self.state == "fulltext":
                 try:
                     id, timestamp = next(self.fulltextiter)
-                    print("Calibre Updates Iterator - fulltext: ", id, file=sys.stderr)
+                    print("\nCalibre Updates Iterator - fulltext: ", id, file=sys.stderr)
                     row = get_calibregpt_timestamp(self.calibregpt_db, id)
                     if not row:
                         return (id, timestamp, "new")
@@ -61,7 +61,7 @@ class CalibreUpdatesIter():
             elif self.state == "gpt":
                 try:
                     id = next(self.calibregptiter)
-                    print("Calibre Updates Iterator - gpt: ", id, file=sys.stderr)
+                    print("\nCalibre Updates Iterator - gpt: ", id, file=sys.stderr)
                     if not check_fulltext_id_exists(self.fulltext_db, id):
                         return (id, None, "delete")
                 except StopIteration:
@@ -131,6 +131,7 @@ def update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, faiss_i
     print("starting update_indices", file = sys.stderr)
     # TODO: batch fetch embeddings
     # TODO: return/print number of books added or updated 
+    counter = 0
     for update in updates:
         (id, timestamp, type) = update
         if type == "update":
@@ -157,6 +158,12 @@ def update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, faiss_i
                 chunk_ids = np.array([chunk_id])
                 faiss_index.add_with_ids(embeddings, chunk_ids)
                 sequence += 1
+        counter += 1
+        if counter > 50:
+            calibregpt_db.commit()
+            persist_faiss_index(faiss_index, faiss_index_fp)
+            counter = 0
+            print("\nupdate indices - batch committed", file = sys.stderr)
     calibregpt_db.commit()
     persist_faiss_index(faiss_index, faiss_index_fp)
 
