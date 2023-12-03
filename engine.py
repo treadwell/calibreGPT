@@ -129,17 +129,18 @@ def fetch_embedding(chunk, token):
 
 def update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, faiss_index_fp, updates, token):
     print("starting update_indices", file = sys.stderr)
-    # TODO: batch fetch embeddings
     # TODO: return/print number of books added or updated 
-    counter = 0
+    num_new_chunks = 0
     for update in updates:
         (id, timestamp, type) = update
-        if type == "update":
-            print("update indices  - update", file = sys.stderr)
+        if type == "update" or type == "delete":
+            print("update indices - " + type, file = sys.stderr)
             cursor = calibregpt_db.cursor()
+            # TODO: get all chunk ids, remove from faiss index, commit updates
             cursor.execute("delete from book_chunks where id_book = ?", [id])
             cursor.execute("delete from books where id = ?", [id])
-            type = "new" 
+            if type == "update":
+                type = "new"
         if type == "new":
             print("update indices - new", file = sys.stderr)
             cursor_md = metadata_db.cursor()
@@ -151,21 +152,28 @@ def update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, faiss_i
             for chunk in BookChunksIter(id, fulltext_db):
                 print("update indices - update chunks", file = sys.stderr)
                 cursor_gpt.execute("insert into book_chunks (id_book, sequence, text) values (?, ?, ?)", [id, sequence, chunk])
-                chunk_id = cursor_gpt.lastrowid
-                embedding = fetch_embedding(chunk, token)
-                cursor_gpt.execute("update book_chunks set embedding = ? where id = ?", [embedding, chunk_id])
-                embeddings = np.array([embedding])
-                chunk_ids = np.array([chunk_id])
-                faiss_index.add_with_ids(embeddings, chunk_ids)
                 sequence += 1
-        counter += 1
-        if counter > 20:
-            calibregpt_db.commit()
-            persist_faiss_index(faiss_index, faiss_index_fp)
-            counter = 0
-            print("\nupdate indices - batch committed", file = sys.stderr)
-    calibregpt_db.commit()
-    persist_faiss_index(faiss_index, faiss_index_fp)
+                num_new_chunks += 1
+                if num_new_chunks > 20:
+                    fetch__missing_embeddings(calibregpt_db, faiss_index, token)
+                    commit_updates(calibregpt_db, faiss_index, faiss_index_fp)
+                # embedding = fetch_embedding(chunk, token)
+                # cursor_gpt.execute("update book_chunks set embedding = ? where id = ?", [embedding, chunk_id])
+                # embeddings = np.array([embedding])
+                # chunk_ids = np.array([chunk_id])
+                # faiss_index.add_with_ids(embeddings, chunk_ids)
+        fetch__missing_embeddings(calibregpt_db, faiss_index, token)
+        commit_updates(calibregpt_db, faiss_index, faiss_index_fp)
+        # counter += 1
+        # if counter > 20:
+        #     calibregpt_db.commit()
+        #     persist_faiss_index(faiss_index, faiss_index_fp)
+        #     counter = 0
+        #     print("\nupdate indices - batch committed", file = sys.stderr)
+    # calibregpt_db.commit()
+    # persist_faiss_index(faiss_index, faiss_index_fp)
+    commit_updates(calibregpt_db, faiss_index, faiss_index_fp)
+
 
 def setup_calibregpt_db(calibregpt_db):
     cursor = calibregpt_db.cursor()
