@@ -159,7 +159,7 @@ def update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, faiss_i
                 faiss_index.add_with_ids(embeddings, chunk_ids)
                 sequence += 1
         counter += 1
-        if counter > 50:
+        if counter > 20:
             calibregpt_db.commit()
             persist_faiss_index(faiss_index, faiss_index_fp)
             counter = 0
