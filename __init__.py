@@ -24,7 +24,7 @@ class CalibreGPT(InterfaceActionBase):
     description         = 'Access GPT with Calibre'
     supported_platforms = ['windows', 'osx', 'linux']
     author              = 'Ken Brooks'
-    version             = (1, 0, 5)
+    version             = (1, 0, 6)
     minimum_calibre_version = (0, 7, 53)
 
     #: This field defines the GUI plugin class that contains all the code
