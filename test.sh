@@ -1,10 +1,12 @@
 #!/bin/sh
 
-PROMPT='I am proposing a college readiness website to help students without college preparation resources'
-FP_FULLTEXT_DB='/Users/kbrooks/Dropbox/Books/calibreGPT_test_lg/full-text-search.db'
-FP_METADATA_DB='/Users/kbrooks/Dropbox/Books/calibreGPT_test_lg/metadata.db'
-FP_CALIBREGPT_DB='/Users/kbrooks/Dropbox/Books/calibreGPT_test_lg/calibregpt.db'
-FP_FAISS_INDEX='/Users/kbrooks/Dropbox/Books/calibreGPT_test_lg/faiss.idx'
+set -e
+
+PROMPT='Contracts with printing companies'
+FP_FULLTEXT_DB='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/full-text-search.db'
+FP_METADATA_DB='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/metadata.db'
+FP_CALIBREGPT_DB='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/calibregpt.db'
+FP_FAISS_INDEX='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/faiss.idx'
 
 clear
 

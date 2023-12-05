@@ -108,9 +108,23 @@ class BookChunksEmbeddingsIter():
         if not row:
             raise StopIteration
         return row[0]
+    
+class MissingChunksIterator():
+    def __init__(self, db):
+        self.cursor = db.cursor()
+        self.cursor.execute(f"select id, text from book_chunks where embedding is null")
+    def __iter__(self):
+        return self
+    def __next__(self):
+        row = self.cursor.fetchone()
+        if not row:
+            raise StopIteration
+        return { "id": row[0], "text": row[1] }
 
 def fetch_embeddings(chunks, token):
-    print("fetch embedding: ", chunks[:50].replace('\n', ' ').replace('\r', ''), file = sys.stderr)
+    chunks = list(chunks)
+    for chunk in chunks:
+        print("fetch embedding: ", chunk[:50].replace('\n', ' ').replace('\r', ''), file = sys.stderr)
     ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ssl_ctx.load_verify_locations(certifi.where())
     connection = http.client.HTTPSConnection("api.openai.com", context=ssl_ctx)
@@ -122,23 +136,27 @@ def fetch_embeddings(chunks, token):
         "Authorization": "Bearer " + token
     })
     response = connection.getresponse()
-    assert response.status == 200, response.reason
+    if response.status != 200:
+        raise ValueError("OpenAI call failed " + str(response.status) + " with reason: " + response.reason)
     body = response.read()
     data = json.loads(body)
-    return map(lambda x: x["embedding"], data["data"])
+    return list(map(lambda x: np.array(x["embedding"]), data["data"]))
+
+def fetch_embedding(chunk, token):
+    return fetch_embeddings([chunk], token)[0]
 
 def fetch_missing_embeddings_(chunks, calibregpt_db, faiss_index, token):
-    embeddings = fetch_embeddings(map(lambda x: x["chunk"], chunks), token)
+    embeddings = fetch_embeddings(map(lambda x: x["text"], chunks), token)
     cursor_gpt = calibregpt_db.cursor()
     for chunk, embedding in zip(chunks, embeddings):
         cursor_gpt.execute("update book_chunks set embedding = ? where id = ?", [embedding, chunk["id"]])
-    faiss_index.add_with_ids(np.array(embeddings), np.array(map(lambda x: x["id"], chunks)))
+    faiss_index.add_with_ids(np.vstack(embeddings), np.array(list(map(lambda x: x["id"], chunks))))
 
-def fetch_missing_embeddings(embedding_batch_size, calibregpt_db, faiss_index, token):
+def fetch_missing_embeddings(batch_size, calibregpt_db, faiss_index, token):
     chunks = []
     for mc in MissingChunksIterator(calibregpt_db):
         chunks.append(mc)
-        if len(chunks) > embedding_batch_size:
+        if len(chunks) > batch_size:
             fetch_missing_embeddings_(chunks, calibregpt_db, faiss_index, token)
             chunks = []
     if len(chunks) > 0:
@@ -148,17 +166,15 @@ def commit_updates(calibregpt_db, faiss_index, faiss_index_fp):
     calibregpt_db.commit()
     persist_faiss_index(faiss_index, faiss_index_fp)
 
-def update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, faiss_index_fp, updates, token):
+def update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, faiss_index_fp, updates, token, batch_size):
     print("starting update_indices", file = sys.stderr)
     # TODO: return/print number of books added or updated
-    embedding_batch_size = 20
     num_new_chunks = 0
     for update in updates:
         (id, timestamp, type) = update
         if type == "update" or type == "delete":
             print("update indices - " + type, file = sys.stderr)
             cursor = calibregpt_db.cursor()
-            # TODO: get all chunk ids, remove from faiss index, commit updates
             chunk_ids = cursor.execute("select id from book_chunks where id_book = ?", [id]).fetchall()
             faiss_index.remove_ids(faiss.IDSelectorBatch(np.array(chunk_ids)))
             cursor.execute("delete from book_chunks where id_book = ?", [id])
@@ -180,11 +196,12 @@ def update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, faiss_i
                 cursor_gpt.execute("insert into book_chunks (id_book, sequence, text) values (?, ?, ?)", [id, sequence, chunk])
                 sequence += 1
                 num_new_chunks += 1
-                if num_new_chunks > embedding_batch_size:
-                    fetch_missing_embeddings(embedding_batch_size, calibregpt_db, faiss_index, token)
+                if num_new_chunks >= batch_size:
+                    fetch_missing_embeddings(batch_size, calibregpt_db, faiss_index, token)
                     commit_updates(calibregpt_db, faiss_index, faiss_index_fp)
+                    num_new_chunks = 0
     # TODO: only persist index if chunks are added or deleted
-    fetch_missing_embeddings(embedding_batch_size, calibregpt_db, faiss_index, token)
+    fetch_missing_embeddings(batch_size, calibregpt_db, faiss_index, token)
     commit_updates(calibregpt_db, faiss_index, faiss_index_fp)
 
 def setup_calibregpt_db(calibregpt_db):
@@ -235,7 +252,9 @@ def open_faiss_index(fp):
         return faiss.IndexIDMap(faiss.IndexFlatL2(1536))
 
 def persist_faiss_index(faiss_index, fp):
+    print("Persist faiss index start", file = sys.stderr)
     faiss.write_index(faiss_index, fp)
+    print("Persist faiss index done", file = sys.stderr)
     return
     
 def search_faiss_index(faiss_index, prompt_embedding, calibregpt_db, match_count):
@@ -283,6 +302,7 @@ def run_query(opts):
     fp_calibregpt_db = opts.calibregpt_db
     fp_faiss_index = opts.faiss_index
     match_count = int(opts.match_count)
+    batch_size = int(opts.batch_size)
 
     fulltext_db = open_db(fp_fulltext_db, False)
     medatadata_db = open_db(fp_metadata_db, False)
@@ -292,7 +312,7 @@ def run_query(opts):
 
     updates = CalibreUpdatesIter(fulltext_db, calibregpt_db)
 
-    update_indices(fulltext_db, medatadata_db, calibregpt_db, faiss_index, fp_faiss_index, updates, openai_token)
+    update_indices(fulltext_db, medatadata_db, calibregpt_db, faiss_index, fp_faiss_index, updates, openai_token, batch_size)
 
     prompt_embedding = get_prompt(opts, calibregpt_db)
 
@@ -312,7 +332,8 @@ if __name__ == "__main__":
     parser.add_argument('--metadata-db')
     parser.add_argument('--calibregpt-db')
     parser.add_argument('--faiss-index')
-    parser.add_argument('--match-count')
+    parser.add_argument('--match-count', default = 30)
+    parser.add_argument('--batch-size', default = 2000)
     mutex = parser.add_mutually_exclusive_group()
     mutex.add_argument('--prompt')
     mutex.add_argument('--ids')
