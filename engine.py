@@ -7,11 +7,15 @@ import http.client
 import json
 import numpy as np 
 import sys
+import string
 
 def open_db(fp, auto_create = True):
     if not auto_create and not os.path.exists(fp):
         raise ValueError("DB doesn't exist: " + fp)   
     conn = sqlite3.connect(fp, isolation_level = "DEFERRED")
+    cursor = conn.cursor()
+    cursor.execute("pragma journal_mode = WAL")
+    cursor.execute("pragma synchronous = NORMAL")
     return conn
 
 def close_db(db):
@@ -77,7 +81,7 @@ class BookChunksIter():
         cursor = db.cursor()
         cursor.execute("select searchable_text from books_text where book = ?", [id])
         row = cursor.fetchone()
-        self.text = str(row[0])
+        self.text = str(filter(lambda x: x in string.printable, str(row[0])))
         self.text_length = len(self.text)
     def __iter__(self):
         return self
@@ -222,6 +226,12 @@ def setup_calibregpt_db(calibregpt_db):
             text text not null,
             embedding blob 
         );
+    """)
+    cursor.execute("""
+        create index if not exists book_chunks_id_book on book_chunks (id_book);
+    """)
+    cursor.execute("""
+        create index if not exists book_chunks_embedding on book_chunks(embedding);
     """)
     calibregpt_db.commit()
 
