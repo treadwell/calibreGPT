@@ -33,18 +33,24 @@ class FullTextTimestampsIter():
             raise StopIteration
         return row
 
-def check_fulltext_id_exists(db, id):
+def check_metadata_id_exists(db, id):
     cursor = db.cursor()
-    cursor.execute("select id from books_text where id = ?", [id])
+    cursor.execute("select id from books where id = ?", [id])
+    return cursor.fetchone() is not None
+
+def check_calibregpt_id_exists(db, id):
+    cursor = db.cursor()
+    cursor.execute("select id from books where id = ?", [id])
     return cursor.fetchone() is not None
 
 class CalibreUpdatesIter():
-    def __init__(self, fulltext_db, calibregpt_db):
+    def __init__(self, fulltext_db, calibregpt_db, metadata_db):
         self.state = "fulltext"
         self.fulltextiter = FullTextTimestampsIter(fulltext_db)
         self.calibregptiter = CalibreGptIdsIter(calibregpt_db)
         self.calibregpt_db = calibregpt_db
         self.fulltext_db = fulltext_db
+        self.metadata_db = metadata_db
     def __iter__(self):
         return self
     def __next__(self):
@@ -66,7 +72,7 @@ class CalibreUpdatesIter():
                 try:
                     id = next(self.calibregptiter)
                     print("\nCalibre Updates Iterator - gpt: ", id, file=sys.stderr)
-                    if not check_fulltext_id_exists(self.fulltext_db, id):
+                    if not check_metadata_id_exists(self.metadata_db, id):
                         return (id, None, "delete")
                 except StopIteration:
                     raise StopIteration
@@ -205,6 +211,7 @@ def update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, faiss_i
                     commit_updates(calibregpt_db, faiss_index, faiss_index_fp)
                     num_new_chunks = 0
     # TODO: only persist index if chunks are added or deleted
+    # TODO: make sure this isn't called even when not needed.
     fetch_missing_embeddings(batch_size, calibregpt_db, faiss_index, token)
     commit_updates(calibregpt_db, faiss_index, faiss_index_fp)
 
@@ -315,21 +322,21 @@ def run_query(opts):
     batch_size = int(opts.batch_size)
 
     fulltext_db = open_db(fp_fulltext_db, False)
-    medatadata_db = open_db(fp_metadata_db, False)
+    metadata_db = open_db(fp_metadata_db, False)
     calibregpt_db = open_db(fp_calibregpt_db, True)
     setup_calibregpt_db(calibregpt_db)
     faiss_index = open_faiss_index(fp_faiss_index)
 
-    updates = CalibreUpdatesIter(fulltext_db, calibregpt_db)
+    updates = CalibreUpdatesIter(fulltext_db, calibregpt_db, metadata_db)
 
-    update_indices(fulltext_db, medatadata_db, calibregpt_db, faiss_index, fp_faiss_index, updates, openai_token, batch_size)
+    update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, fp_faiss_index, updates, openai_token, batch_size)
 
     prompt_embedding = get_prompt(opts, calibregpt_db)
 
     ranking = search_faiss_index(faiss_index, prompt_embedding, calibregpt_db, match_count)
     
     close_db(fulltext_db)
-    close_db(medatadata_db)
+    close_db(metadata_db)
     close_db(calibregpt_db)
 
     return ranking
