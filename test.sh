@@ -2,7 +2,7 @@
 
 set -e
 
-PROMPT='Contracts with printing companies'
+PROMPT='Cloud Computing in Higher Education'
 FP_FULLTEXT_DB='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/full-text-search.db'
 FP_METADATA_DB='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/metadata.db'
 FP_CALIBREGPT_DB='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/calibregpt.db'
@@ -28,4 +28,4 @@ python3 engine.py \
     --calibregpt-db "$FP_CALIBREGPT_DB" \
     --faiss-index "$FP_FAISS_INDEX" \
     --match-count 10 \
-    --ids "1,2"
+    --ids "40, 51"
