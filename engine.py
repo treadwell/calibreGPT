@@ -8,6 +8,13 @@ import json
 import numpy as np 
 import sys
 import string
+import math
+
+DEBUG = False
+
+def debug(*args):
+    if DEBUG:
+        print(*args, file = sys.stderr)
 
 def open_db(fp, auto_create = True):
     if not auto_create and not os.path.exists(fp):
@@ -58,7 +65,7 @@ class CalibreUpdatesIter():
             if self.state == "fulltext":
                 try:
                     id, timestamp = next(self.fulltextiter)
-                    print("\nCalibre Updates Iterator - fulltext: ", id, file=sys.stderr)
+                    debug("\nCalibre Updates Iterator - fulltext: ", id)
                     row = get_calibregpt_timestamp(self.calibregpt_db, id)
                     if not row:
                         return (id, timestamp, "new")
@@ -71,7 +78,7 @@ class CalibreUpdatesIter():
             elif self.state == "gpt":
                 try:
                     id = next(self.calibregptiter)
-                    print("\nCalibre Updates Iterator - gpt: ", id, file=sys.stderr)
+                    debug("\nCalibre Updates Iterator - gpt: ", id)
                     if not check_metadata_id_exists(self.metadata_db, id):
                         return (id, None, "delete")
                 except StopIteration:
@@ -80,35 +87,36 @@ class CalibreUpdatesIter():
                 raise ValueError("Invalid state: " + self.state)
 
 class BookChunksIter():
-    def __init__(self, id, db, chunk_size = 4000, overlap_pcnt = 0.2):
-        self.chunk_size = chunk_size
-        self.overlap_pcnt = overlap_pcnt
+    def __init__(self, id, db, chunk_size, overlap_percent):
+        self.overlap_size = math.floor(chunk_size * overlap_percent)
+        self.chunk_size = math.floor(chunk_size - 2 * self.overlap_size)
+        debug("Check chunks:", self.overlap_size, self.chunk_size, chunk_size, overlap_percent)
         self.position = 0
         cursor = db.cursor()
         cursor.execute("select searchable_text from books_text where book = ?", [id])
         row = cursor.fetchone()
-        self.text = str(filter(lambda x: x in string.printable, str(row[0])))
+        self.text = "".join(filter(lambda x: x in string.printable, row[0]))
         self.text_length = len(self.text)
     def __iter__(self):
         return self
     def __next__(self):
-        print("Book Chunks Iterator - next", file = sys.stderr)
-        if self.position > self.text_length:
+        debug("Book Chunks Iterator - next")
+        if self.position >= self.text_length:
             raise StopIteration
-        start_idx = self.position - int(self.chunk_size * self.overlap_pcnt)
+        start_idx = self.position - self.overlap_size
         if start_idx < 0:
             start_idx = 0
-        end_idx = self.position + int(self.chunk_size * (1 + self.overlap_pcnt))
+        end_idx = self.position + self.chunk_size + self.overlap_size
         if end_idx > self.text_length - 1:
             end_idx = self.text_length - 1
-        # TODO: cutting words in half at boundaries 
-        self.position = self.position + self.chunk_size
-        print("BCI start: ", start_idx, "BCI end: ", end_idx, "BCI position: ", self.position, file = sys.stderr)
+        # TODO: cutting words in half at boundaries
+        self.position = end_idx + 1
+        debug("BCI start: ", start_idx, "BCI end: ", end_idx, "BCI position: ", self.position)
         return self.text[start_idx:end_idx]
 
 class BookChunksEmbeddingsIter():
     def __init__(self, ids, db):
-        print(ids, file = sys.stderr)
+        debug(ids)
         self.cursor = db.cursor()
         self.cursor.execute(f"select embedding from book_chunks where id_book in ({','.join(['?' for _ in ids])})", list(map(int, ids)))
     def __iter__(self):
@@ -134,7 +142,7 @@ class MissingChunksIterator():
 def fetch_embeddings(chunks, token):
     chunks = list(chunks)
     for chunk in chunks:
-        print("fetch embedding: ", chunk[:50].replace('\n', ' ').replace('\r', ''), file = sys.stderr)
+        debug("fetch embedding: ", chunk[:50].replace('\n', ' ').replace('\r', ''))
     ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ssl_ctx.load_verify_locations(certifi.where())
     connection = http.client.HTTPSConnection("api.openai.com", context=ssl_ctx)
@@ -166,7 +174,7 @@ def fetch_missing_embeddings(batch_size, calibregpt_db, faiss_index, token):
     chunks = []
     for mc in MissingChunksIterator(calibregpt_db):
         chunks.append(mc)
-        if len(chunks) > batch_size:
+        if len(chunks) >= batch_size:
             fetch_missing_embeddings_(chunks, calibregpt_db, faiss_index, token)
             chunks = []
     if len(chunks) > 0:
@@ -176,14 +184,14 @@ def commit_updates(calibregpt_db, faiss_index, faiss_index_fp):
     calibregpt_db.commit()
     persist_faiss_index(faiss_index, faiss_index_fp)
 
-def update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, faiss_index_fp, updates, token, batch_size):
-    print("starting update_indices", file = sys.stderr)
+def update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, faiss_index_fp, updates, token, batch_size, chunk_size, overlap_percent):
+    debug("starting update_indices")
     # TODO: return/print number of books added or updated
     num_new_chunks = 0
     for update in updates:
         (id, timestamp, type) = update
         if type == "update" or type == "delete":
-            print("update indices - " + type, file = sys.stderr)
+            debug("update indices - " + type)
             cursor = calibregpt_db.cursor()
             chunk_ids = cursor.execute("select id from book_chunks where id_book = ?", [id]).fetchall()
             faiss_index.remove_ids(faiss.IDSelectorBatch(np.array(chunk_ids)))
@@ -194,15 +202,15 @@ def update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, faiss_i
             else:
                 commit_updates(calibregpt_db, faiss_index, faiss_index_fp)
         if type == "new":
-            print("update indices - new", file = sys.stderr)
+            debug("update indices - new")
             cursor_md = metadata_db.cursor()
             cursor_md.execute("select id, title, author_sort from books where id = ?", [id])
             id, title, author = cursor_md.fetchone()
             cursor_gpt = calibregpt_db.cursor()
             cursor_gpt.execute("insert into books (id, timestamp, title, author) values (?, ?, ?, ?)", [id, timestamp, title, author])
             sequence = 0
-            for chunk in BookChunksIter(id, fulltext_db):
-                print("update indices - update chunks", file = sys.stderr)
+            for chunk in BookChunksIter(id, fulltext_db, chunk_size, overlap_percent):
+                debug("update indices - update chunks")
                 cursor_gpt.execute("insert into book_chunks (id_book, sequence, text) values (?, ?, ?)", [id, sequence, chunk])
                 sequence += 1
                 num_new_chunks += 1
@@ -269,9 +277,9 @@ def open_faiss_index(fp):
         return faiss.IndexIDMap(faiss.IndexFlatL2(1536))
 
 def persist_faiss_index(faiss_index, fp):
-    print("Persist faiss index start", file = sys.stderr)
+    debug("Persist faiss index start")
     faiss.write_index(faiss_index, fp)
-    print("Persist faiss index done", file = sys.stderr)
+    debug("Persist faiss index done")
     return
     
 def search_faiss_index(faiss_index, prompt_embedding, calibregpt_db, match_count):
@@ -294,7 +302,7 @@ def search_faiss_index(faiss_index, prompt_embedding, calibregpt_db, match_count
                 excerpt = excerpt[:50].replace("\n", " ")
             ))
         else:
-            print(f"No data found for chunk_id: {chunk_id}", file = sys.stderr)
+            debug(f"No data found for chunk_id: {chunk_id}")
 
     return results
 
@@ -320,6 +328,8 @@ def run_query(opts):
     fp_faiss_index = opts.faiss_index
     match_count = int(opts.match_count)
     batch_size = int(opts.batch_size)
+    chunk_size = int(opts.chunk_size)
+    overlap_percent = float(opts.overlap_percent)
 
     fulltext_db = open_db(fp_fulltext_db, False)
     metadata_db = open_db(fp_metadata_db, False)
@@ -329,7 +339,7 @@ def run_query(opts):
 
     updates = CalibreUpdatesIter(fulltext_db, calibregpt_db, metadata_db)
 
-    update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, fp_faiss_index, updates, openai_token, batch_size)
+    update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, fp_faiss_index, updates, openai_token, batch_size, chunk_size, overlap_percent)
 
     prompt_embedding = get_prompt(opts, calibregpt_db)
 
@@ -344,16 +354,21 @@ def run_query(opts):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(prog = 'CalibreGPT')
+    parser.add_argument('--debug')
     parser.add_argument('--openai-token')
     parser.add_argument('--fulltext-db')
     parser.add_argument('--metadata-db')
     parser.add_argument('--calibregpt-db')
     parser.add_argument('--faiss-index')
+    parser.add_argument('--chunk-size', default = 4096)
+    parser.add_argument('--overlap-percent', default = 0.2)
     parser.add_argument('--match-count', default = 30)
-    parser.add_argument('--batch-size', default = 2000)
+    parser.add_argument('--batch-size', default = 2048)
     mutex = parser.add_mutually_exclusive_group()
     mutex.add_argument('--prompt')
     mutex.add_argument('--ids')
     
     args = parser.parse_args()
+    DEBUG = os.environ["DEBUG"] == "1" or args["debug"]
+
     print(json.dumps(run_query(args)))

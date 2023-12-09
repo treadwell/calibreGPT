@@ -10,6 +10,8 @@ FP_FAISS_INDEX='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/faiss.idx'
 
 clear
 
+export DEBUG=1
+
 echo "testing --prompt"
 python3 engine.py \
     --openai-token "$OPENAI_TOKEN" \
