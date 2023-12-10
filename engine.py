@@ -29,16 +29,22 @@ def close_db(db):
     db.close()
 
 class FullTextTimestampsIter():
-    def __init__(self, db):
-        self.cursor = db.cursor()
-        self.cursor.execute("select book, timestamp from books_text")
+    def __init__(self, fulltext_db, metadata_db):
+        self.cursor_md = metadata_db.cursor()
+        self.cursor_md.execute("select id from books")
+        self.fulltext_db = fulltext_db
     def __iter__(self):
         return self
     def __next__(self):
-        row = self.cursor.fetchone()
-        if not row:
-            raise StopIteration
-        return row
+        while True:
+            row = self.cursor_md.fetchone()
+            if not row:
+                raise StopIteration
+            cursor_ft = self.fulltext_db.cursor()
+            cursor_ft.execute("select book, timestamp from books_text where book = ?", [row[0]])
+            row = cursor_ft.fetchone()
+            if row is not None:
+                return row
 
 def check_metadata_id_exists(db, id):
     cursor = db.cursor()
@@ -53,7 +59,7 @@ def check_calibregpt_id_exists(db, id):
 class CalibreUpdatesIter():
     def __init__(self, fulltext_db, calibregpt_db, metadata_db):
         self.state = "fulltext"
-        self.fulltextiter = FullTextTimestampsIter(fulltext_db)
+        self.fulltextiter = FullTextTimestampsIter(fulltext_db, metadata_db)
         self.calibregptiter = CalibreGptIdsIter(calibregpt_db)
         self.calibregpt_db = calibregpt_db
         self.fulltext_db = fulltext_db
