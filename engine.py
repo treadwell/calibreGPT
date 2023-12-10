@@ -312,9 +312,14 @@ def search_faiss_index(faiss_index, prompt_embedding, calibregpt_db, match_count
 
     return results
 
+class NoFulltextDataError(Exception):
+    pass
+
 def merge_book_embeddings(ids, db):
     arrays = list(map(lambda c: np.frombuffer(c, dtype = "float64"), 
                  BookChunksEmbeddingsIter(ids, db)))
+    if len(arrays) == 0:
+        raise NoFulltextDataError()
     return np.mean(np.vstack(arrays), axis = 0)
 
 def get_prompt(opts, calibregpt_db):
@@ -376,5 +381,8 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     DEBUG = os.environ.get("DEBUG") == "1" or args.debug
-
-    print(json.dumps(run_query(args)))
+    
+    try:
+        print(json.dumps(run_query(args)))
+    except NoFulltextDataError:
+        print(json.dumps({"error": "No full text data for selected books."}))

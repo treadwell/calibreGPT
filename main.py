@@ -1,4 +1,4 @@
-from qt.core import QDialog, QVBoxLayout, QPushButton, QLabel
+from qt.core import QDialog, QVBoxLayout, QPushButton, QLabel, QMessageBox
 from PyQt5.Qt import QLineEdit
 from calibre.utils.config_base import prefs as base_prefs
 from calibre_plugins.calibre_gpt.config import prefs
@@ -61,7 +61,9 @@ class GPTDialog(QDialog):
         self.resize(self.sizeHint())
     
     def query_text(self):
-        data = json.loads(self.exec_query(["--prompt", self.prompt.text()]).decode("utf-8"))
+        data = self.exec_query(["--prompt", self.prompt.text()])
+        if data == None:
+            return
         matched_ids = [d["book_id"] for d in data]
         self.db.set_marked_ids(matched_ids)
         self.gui.search.setEditText('marked:true')
@@ -73,7 +75,9 @@ class GPTDialog(QDialog):
         self.close()
 
     def query_book(self, ids):
-        data = json.loads(self.exec_query(["--ids", ",".join([str(id) for id in ids])]).decode("utf-8"))
+        data = self.exec_query(["--ids", ",".join([str(id) for id in ids])])
+        if data == None:
+            return
         matched_ids = [d["book_id"] for d in data]
         self.db.set_marked_ids(matched_ids)
         self.gui.search.setEditText('marked:true')
@@ -98,7 +102,16 @@ class GPTDialog(QDialog):
         res = engine.communicate(input = get_resources("engine.py"))
         print("stdout: ", res[0], file = sys.stderr)
         print("stderr: ", res[1], file = sys.stderr)
-        return res[0]
+        data = json.loads(res[0].decode("utf-8"))
+        if data["error"] is not None:
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Critical)
+            msg.setText("Error")
+            msg.setInformativeText(data["error"])
+            msg.setWindowTitle("Error")
+            msg.exec_()
+            return None
+        return data
 
     def config(self):
         self.do_user_config(parent=self)
