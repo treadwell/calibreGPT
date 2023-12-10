@@ -35,7 +35,7 @@ class FullTextTimestampsIter():
     def __iter__(self):
         return self
     def __next__(self):
-        row = self.cursor.fetchone() 
+        row = self.cursor.fetchone()
         if not row:
             raise StopIteration
         return row
@@ -369,6 +369,6 @@ if __name__ == "__main__":
     mutex.add_argument('--ids')
     
     args = parser.parse_args()
-    DEBUG = os.environ["DEBUG"] == "1" or args["debug"]
+    DEBUG = os.environ.get("DEBUG") == "1" or args.debug
 
     print(json.dumps(run_query(args)))

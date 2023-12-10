@@ -4,6 +4,7 @@ from calibre.utils.config_base import prefs as base_prefs
 from calibre_plugins.calibre_gpt.config import prefs
 from calibre.db.legacy import LibraryDatabase
 from calibre.ptempfile import TemporaryFile
+import sys
 
 # from calibre_plugins.calibre_gpt.engine import run_query
 import subprocess
@@ -95,10 +96,8 @@ class GPTDialog(QDialog):
             stderr = subprocess.PIPE, 
             stdin = subprocess.PIPE)
         res = engine.communicate(input = get_resources("engine.py"))
-        print("stdout")
-        print(res[0])
-        print("stderr")
-        print(res[1])
+        print("stdout: ", res[0], file = sys.stderr)
+        print("stderr: ", res[1], file = sys.stderr)
         return res[0]
 
     def config(self):

@@ -10,7 +10,7 @@ FP_FAISS_INDEX='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/faiss.idx'
 
 clear
 
-export DEBUG=1
+# export DEBUG=1
 
 echo "testing --prompt"
 python3 engine.py \
@@ -30,4 +30,4 @@ python3 engine.py \
     --calibregpt-db "$FP_CALIBREGPT_DB" \
     --faiss-index "$FP_FAISS_INDEX" \
     --match-count 10 \
-    --ids "40, 51"
+    --ids "13880"
