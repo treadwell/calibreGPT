@@ -383,6 +383,6 @@ if __name__ == "__main__":
     DEBUG = os.environ.get("DEBUG") == "1" or args.debug
     
     try:
-        print(json.dumps(run_query(args)))
+        print(json.dumps({ "results": run_query(args) }))
     except NoFulltextDataError:
-        print(json.dumps({"error": "No full text data for selected books."}))
+        print(json.dumps({ "error": "No full text data for selected books." }))

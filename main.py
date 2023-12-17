@@ -103,7 +103,7 @@ class GPTDialog(QDialog):
         print("stdout: ", res[0], file = sys.stderr)
         print("stderr: ", res[1], file = sys.stderr)
         data = json.loads(res[0].decode("utf-8"))
-        if data["error"] is not None:
+        if "error" in data:
             msg = QMessageBox()
             msg.setIcon(QMessageBox.Critical)
             msg.setText("Error")
@@ -111,7 +111,7 @@ class GPTDialog(QDialog):
             msg.setWindowTitle("Error")
             msg.exec_()
             return None
-        return data
+        return data["results"]
 
     def config(self):
         self.do_user_config(parent=self)
