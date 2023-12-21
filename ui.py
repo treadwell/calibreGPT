@@ -15,10 +15,19 @@ class InterfacePlugin(InterfaceAction):
     name = 'Calibre GPT Query Books'
     action_spec = ('Calibre GPT', None, 'Run the Calibre GPT Plugin', None)
 
+    # def initialize(self):
+    #     self.gui.add_iaction(InterfacePluginSecondary(self.gui, None))
+    #     # Need properties to make it popup...try another function
+    #     # something other than genesis().
+
     def initialize(self):
-        self.gui.add_iaction(InterfacePluginSecondary(self.gui, None))
-        # Need properties to make it popup...try another function
-        # something other than genesis().
+        from calibre.customize.ui import _initialized_plugins
+        for plugin in _initialized_plugins:
+            if isinstance(plugin, InterfaceActionSecondary):
+                break
+        plugin = InterfaceActionSecondary(self.plugin_path)
+        _initialized_plugins.append(plugin)
+        plugin.initialize()
 
     def genesis(self):
         subprocess.run(["pip3", "install", "certifi", "faiss-cpu", "numpy"])
