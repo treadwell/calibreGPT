@@ -43,8 +43,8 @@ class GPTDialog(QDialog):
         elif type == 'context':
             rows = self.gui.library_view.selectionModel().selectedRows()
             ids = list(map(self.gui.library_view.model().id, rows))
-            self.search_book = QPushButton(
-                f'Search for books similar to the {str(len(ids))} you have selected.', self)
+            self.l.addWidget(QLabel(f'Search for books similar to the {str(len(ids))} you have selected.'))
+            self.search_book = QPushButton('Search', self)
             self.l.addWidget(self.search_book)
             self.search_book.clicked.connect(lambda: self.query_book(ids))
         else:
@@ -96,8 +96,8 @@ class GPTDialog(QDialog):
             stderr = subprocess.PIPE, 
             stdin = subprocess.PIPE)
         res = engine.communicate(input = get_resources("engine.py"))
-        print("stdout: ", res[0], file = sys.stderr)
-        print("stderr: ", res[1], file = sys.stderr)
+        # print("stdout: ", res[0], file = sys.stderr)
+        # print("stderr: ", res[1], file = sys.stderr)
         data = json.loads(res[0].decode("utf-8"))
         if "error" in data:
             msg = QMessageBox()

@@ -1,3 +1,4 @@
+import calibre_plugins.calibre_gpt.strings as strings
 from calibre.customize import InterfaceActionBase
 
 from apsw import ConstraintError
@@ -11,8 +12,8 @@ except ConstraintError:
     pass
 
 class CalibreGPT(InterfaceActionBase):
-    name                = 'Calibre GPT'
-    description         = 'Access GPT with Calibre'
+    name                = strings.primary_name
+    description         = strings.primary_description
     supported_platforms = ['windows', 'osx', 'linux']
     author              = 'Ken Brooks'
     version             = (1, 0, 7)
@@ -31,3 +32,14 @@ class CalibreGPT(InterfaceActionBase):
         ac = self.actual_plugin_
         if ac is not None:
             ac.apply_settings()
+
+    def initialize(self):
+        print("initialize is running")
+        from calibre.customize.ui import _initialized_plugins
+        from calibre_plugins.calibre_gpt.secondary import CalibreGPTSecondary
+        for plugin in _initialized_plugins:
+            if isinstance(plugin, CalibreGPTSecondary):
+                break
+        plugin = CalibreGPTSecondary(self.plugin_path)
+        _initialized_plugins.append(plugin)
+        plugin.initialize()
