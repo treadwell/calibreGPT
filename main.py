@@ -13,7 +13,7 @@ import json
 
 class GPTDialog(QDialog):
 
-    def __init__(self, gui, icon, do_user_config):
+    def __init__(self, gui, icon, do_user_config, type):
         QDialog.__init__(self, gui)
         self.icon = icon
         self.gui = gui
@@ -21,11 +21,6 @@ class GPTDialog(QDialog):
         self.lib_path = base_prefs['library_path']
         self.legacy_db = LibraryDatabase(base_prefs["library_path"])
 
-        # The current database shown in the GUI
-        # db is an instance of the class LibraryDatabase from db/legacy.py
-        # This class has many, many methods that allow you to do a lot of
-        # things. For most purposes you should use db.new_api, which has
-        # a much nicer interface from db/cache.py
         self.db = gui.current_db
 
         self.l = QVBoxLayout()
@@ -38,21 +33,22 @@ class GPTDialog(QDialog):
         
         if not self.token:
             self.l.addWidget(QLabel('Add token in configuration window!'))
-        else:
-            rows = self.gui.library_view.selectionModel().selectedRows()
-            ids = list(map(self.gui.library_view.model().id, rows))
-            if len(ids) > 0:
-                self.search_book = QPushButton('Search for books similar to the ' +
-                                               str(len(ids)) +
-                                               ' you have selected.', self)
-                self.l.addWidget(self.search_book)
-                self.search_book.clicked.connect(lambda: self.query_book(ids))
-            self.l.addWidget(QLabel('otherwise enter a query and press search.'))
+        elif type == 'main':
+            self.l.addWidget(QLabel('Enter a query and press search.'))
             self.prompt = QLineEdit()
             self.l.addWidget(self.prompt)
             self.search_text = QPushButton('Search', self)
             self.l.addWidget(self.search_text)
             self.search_text.clicked.connect(self.query_text)
+        elif type == 'context':
+            rows = self.gui.library_view.selectionModel().selectedRows()
+            ids = list(map(self.gui.library_view.model().id, rows))
+            self.l.addWidget(QLabel(f'Search for books similar to the {str(len(ids))} you have selected.'))
+            self.search_book = QPushButton('Search', self)
+            self.l.addWidget(self.search_book)
+            self.search_book.clicked.connect(lambda: self.query_book(ids))
+        else:
+            raise ValueError("Invalid type: main or context expected, received " + type)
 
         self.conf_button = QPushButton('Configure this plugin', self)
         self.conf_button.clicked.connect(self.config)
@@ -100,8 +96,8 @@ class GPTDialog(QDialog):
             stderr = subprocess.PIPE, 
             stdin = subprocess.PIPE)
         res = engine.communicate(input = get_resources("engine.py"))
-        print("stdout: ", res[0], file = sys.stderr)
-        print("stderr: ", res[1], file = sys.stderr)
+        # print("stdout: ", res[0], file = sys.stderr)
+        # print("stderr: ", res[1], file = sys.stderr)
         data = json.loads(res[0].decode("utf-8"))
         if "error" in data:
             msg = QMessageBox()

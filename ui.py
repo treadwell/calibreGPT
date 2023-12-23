@@ -1,58 +1,39 @@
 from calibre.gui2.actions import InterfaceAction
 from calibre_plugins.calibre_gpt.main import GPTDialog
 import subprocess
+import calibre_plugins.calibre_gpt.strings as strings
+
+def show_dialog(gui, qaction, do_user_config, type):
+    d = GPTDialog(gui, qaction.icon(), do_user_config, type)
+    d.show()
 
 class InterfacePlugin(InterfaceAction):
 
-    name = 'Calibre GPT'
-
-    # Declare the main action associated with this plugin
-    # The keyboard shortcut can be None if you dont want to use a keyboard
-    # shortcut. Remember that currently calibre has no central management for
-    # keyboard shortcuts, so try to use an unusual/unused shortcut.
-    action_spec = ('Calibre GPT', None,
-            'Run the Calibre GPT Plugin', None)
+    name = strings.primary_name
+    action_spec = (strings.primary_action_name, None, strings.primary_description, None)
+    dont_add_to = frozenset(['context-menu',
+        'context-menu-device', 'menubar', 'menubar-device',
+        'context-menu-cover-browser', 'context-menu-split', 'searchbar'])
 
     def genesis(self):
-        # This method is called once per plugin, do initial setup here
-
-        # Set the icon for this interface action
-        # The get_icons function is a builtin function defined for all your
-        # plugin code. It loads icons from the plugin zip file. It returns
-        # QIcon objects, if you want the actual data, use the analogous
-        # get_resources builtin function.
-        #
-        # Note that if you are loading more than one icon, for performance, you
-        # should pass a list of names to get_icons. In this case, get_icons
-        # will return a dictionary mapping names to QIcons. Names that
-        # are not found in the zip file will result in null QIcons.
-        icon = get_icons('images/icon.png', 'Calibre GPT Plugin')
-
-        # The qaction is automatically created from the action_spec defined
-        # above
-        self.qaction.setIcon(icon)
-        self.qaction.triggered.connect(self.show_dialog)
-
-        # TODO: double check that we need this
         subprocess.run(["pip3", "install", "certifi", "faiss-cpu", "numpy"])
+        self.icon = get_icons('images/icon.png', self.name)
+        self.qaction.setIcon(self.icon)
+        self.qaction.triggered.connect(self.show)
 
-    def show_dialog(self):
-        # The base plugin object defined in __init__.py
-        base_plugin_object = self.interface_action_base_plugin
-        # Show the config dialog
-        # The config dialog can also be shown from within
-        # Preferences->Plugins, which is why the do_user_config
-        # method is defined on the base plugin class
-        do_user_config = base_plugin_object.do_user_config
+    def show(self):
+        show_dialog(self.gui, self.qaction, self.interface_action_base_plugin.do_user_config, "main")
 
-        # self.gui is the main calibre GUI. It acts as the gateway to access
-        # all the elements of the calibre user interface, it should also be the
-        # parent of the dialog
-        d = GPTDialog(self.gui, self.qaction.icon(), do_user_config)
-        d.show()
+class InterfacePluginSecondary(InterfaceAction):
 
-    def apply_settings(self):
-        from calibre_plugins.calibre_gpt.config import prefs
-        # In an actual non trivial plugin, you would probably need to
-        # do something based on the settings in prefs
-        #prefs["engine"] = self.engine
+    name = strings.secondary_name
+    action_spec = (strings.secondary_action_name, None, strings.secondary_description, None)
+    dont_add_to = frozenset(['toolbar', 'toolbar-device', 'toolbar-child', 'menubar', 'menubar-device', 'searchbar'])
+
+    def genesis(self):
+        self.icon = get_icons('images/icon.png', self.name)
+        self.qaction.setIcon(self.icon)
+        self.qaction.triggered.connect(self.show)
+
+    def show(self):
+        show_dialog(self.gui, self.qaction, self.interface_action_base_plugin.do_user_config, "context")
