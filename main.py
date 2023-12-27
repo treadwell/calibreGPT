@@ -18,8 +18,8 @@ class GPTDialog(QDialog):
         self.icon = icon
         self.gui = gui
         self.do_user_config = do_user_config
+        self.lib_path = base_prefs['library_path']
         self.legacy_db = LibraryDatabase(base_prefs["library_path"])
-        self.lib_path = os.path.dirname(self.legacy_db.dbpath)
 
         self.db = gui.current_db
 
@@ -96,8 +96,8 @@ class GPTDialog(QDialog):
             stderr = subprocess.PIPE, 
             stdin = subprocess.PIPE)
         res = engine.communicate(input = get_resources("engine.py"))
-        print("stdout: ", res[0], file = sys.stderr)
-        print("stderr: ", res[1], file = sys.stderr)
+        # print("stdout: ", res[0], file = sys.stderr)
+        # print("stderr: ", res[1], file = sys.stderr)
         data = json.loads(res[0].decode("utf-8"))
         if "error" in data:
             msg = QMessageBox()
