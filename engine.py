@@ -20,9 +20,9 @@ def open_db(fp, auto_create = True):
     if not auto_create and not os.path.exists(fp):
         raise ValueError("DB doesn't exist: " + fp)   
     conn = sqlite3.connect(fp, isolation_level = "DEFERRED")
-    cursor = conn.cursor()
-    cursor.execute("pragma journal_mode = WAL")
-    cursor.execute("pragma synchronous = NORMAL")
+    # cursor = conn.cursor()
+    # cursor.execute("pragma journal_mode = WAL")
+    # cursor.execute("pragma synchronous = NORMAL")
     return conn
 
 def close_db(db):

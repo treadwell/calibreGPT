@@ -16,7 +16,7 @@ class CalibreGPT(InterfaceActionBase):
     description         = strings.primary_description
     supported_platforms = ['windows', 'osx', 'linux']
     author              = 'Ken Brooks'
-    version             = (1, 0, 7)
+    version             = (1, 0, 8)
     minimum_calibre_version = (0, 7, 53)
     actual_plugin       = 'calibre_plugins.calibre_gpt.ui:InterfacePlugin'
 
