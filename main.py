@@ -18,6 +18,7 @@ class GPTDialog(QDialog):
         self.do_user_config = do_user_config
         self.legacy_db = LibraryDatabase(base_prefs["library_path"])
         self.db_dir = os.path.dirname(self.legacy_db.dbpath)
+        self.type = type
 
         self.db = gui.current_db
 
@@ -108,5 +109,5 @@ class GPTDialog(QDialog):
     def config(self):
         self.do_user_config(parent=self)
         self.done(0)
-        self.__init__(self.gui, self.icon, self.do_user_config)
+        self.__init__(self.gui, self.icon, self.do_user_config, self.type)
         self.show()
