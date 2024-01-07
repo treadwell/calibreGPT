@@ -6,7 +6,7 @@ class CalibreGPTSecondary(InterfaceActionBase):
     description         = strings.secondary_description
     supported_platforms = ['windows', 'osx', 'linux']
     author              = 'Ken Brooks'
-    version             = (1, 0, 7)
+    version             = strings.version
     minimum_calibre_version = (0, 7, 53)
     actual_plugin       = 'calibre_plugins.calibre_gpt.ui:InterfacePluginSecondary'
 

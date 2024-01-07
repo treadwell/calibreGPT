@@ -34,7 +34,6 @@ python3 engine.py \
     --fulltext-db "$FP_FULLTEXT_DB" \
     --metadata-db "$FP_METADATA_DB" \
     --calibregpt-db "$FP_CALIBREGPT_DB" \
-
     --faiss-index "$FP_FAISS_INDEX" \
     --match-count 10 \
     --ids "1, 2"

@@ -252,7 +252,10 @@ def setup_calibregpt_db(calibregpt_db):
         create index if not exists book_chunks_id_book on book_chunks (id_book);
     """)
     cursor.execute("""
-        create index if not exists book_chunks_embedding on book_chunks(embedding);
+        drop index if exists book_chunks_embedding;
+    """)
+    cursor.execute("""
+        create index if not exists book_chunks_embedding_exists on book_chunks(embedding) where embedding is null;
     """)
     calibregpt_db.commit()
 
