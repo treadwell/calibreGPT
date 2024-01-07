@@ -4,15 +4,15 @@ set -e
 
 PROMPT='Cloud Computing in Higher Education'
 
-# FP_FULLTEXT_DB='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/full-text-search.db'
-# FP_METADATA_DB='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/metadata.db'
-# FP_CALIBREGPT_DB='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/calibregpt.db'
-# FP_FAISS_INDEX='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/faiss.idx'
+FP_FULLTEXT_DB='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/full-text-search.db'
+FP_METADATA_DB='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/metadata.db'
+FP_CALIBREGPT_DB='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/calibregpt.db'
+FP_FAISS_INDEX='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/faiss.idx'
 
-FP_FULLTEXT_DB='/Users/kbrooks/Dropbox/Books/Yoga Calibre Library/full-text-search.db'
-FP_METADATA_DB='/Users/kbrooks/Dropbox/Books/Yoga Calibre Library/metadata.db'
-FP_CALIBREGPT_DB='/Users/kbrooks/Dropbox/Books/Yoga Calibre Library/calibregpt.db'
-FP_FAISS_INDEX='/Users/kbrooks/Dropbox/Books/Yoga Calibre Library/faiss.idx'
+# FP_FULLTEXT_DB='/Users/kbrooks/Dropbox/Books/Yoga Calibre Library/full-text-search.db'
+# FP_METADATA_DB='/Users/kbrooks/Dropbox/Books/Yoga Calibre Library/metadata.db'
+# FP_CALIBREGPT_DB='/Users/kbrooks/Dropbox/Books/Yoga Calibre Library/calibregpt.db'
+# FP_FAISS_INDEX='/Users/kbrooks/Dropbox/Books/Yoga Calibre Library/faiss.idx'
 
 clear
 
@@ -34,6 +34,7 @@ python3 engine.py \
     --fulltext-db "$FP_FULLTEXT_DB" \
     --metadata-db "$FP_METADATA_DB" \
     --calibregpt-db "$FP_CALIBREGPT_DB" \
+
     --faiss-index "$FP_FAISS_INDEX" \
     --match-count 10 \
-    --ids "1, 30"
+    --ids "1, 2"
