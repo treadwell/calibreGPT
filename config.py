@@ -11,8 +11,7 @@ prefs = JSONConfig('plugins/calibre_gpt')
 # Set defaults
 prefs.defaults['open_ai_token'] = ''
 
-
-class ConfigWidget(QWidget):
+class ConfigWidget(QWidget): 
 
     def __init__(self):
         QWidget.__init__(self)

@@ -16,15 +16,16 @@ def debug(*args):
     if DEBUG:
         print(*args, file = sys.stderr)
 
-def open_db(fp, auto_create = True):
+def open_db(fp, auto_create = True, wal = False):
     if not auto_create and not os.path.exists(fp):
         raise ValueError("DB doesn't exist: " + fp)   
     conn = sqlite3.connect(fp, isolation_level = "DEFERRED")
-    # cursor = conn.cursor()
-    # cursor.execute("pragma journal_mode = WAL")
-    # cursor.execute("pragma synchronous = NORMAL")
+    if wal:
+        cursor = conn.cursor()
+        cursor.execute("pragma journal_mode = WAL")
+        cursor.execute("pragma synchronous = NORMAL")
     return conn
-
+ 
 def close_db(db):
     db.close()
 
@@ -347,7 +348,7 @@ def run_query(opts):
 
     fulltext_db = open_db(fp_fulltext_db, False)
     metadata_db = open_db(fp_metadata_db, False)
-    calibregpt_db = open_db(fp_calibregpt_db, True)
+    calibregpt_db = open_db(fp_calibregpt_db, True, True)
     setup_calibregpt_db(calibregpt_db)
     faiss_index = open_faiss_index(fp_faiss_index)
 

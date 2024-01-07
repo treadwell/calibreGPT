@@ -1,12 +1,10 @@
 from qt.core import QDialog, QVBoxLayout, QPushButton, QLabel, QMessageBox
 from PyQt5.Qt import QLineEdit
 from calibre.utils.config_base import prefs as base_prefs
-from calibre_plugins.calibre_gpt.config import prefs
+from calibre_plugins.calibre_gpt.config import prefs as calibregpt_prefs
 from calibre.db.legacy import LibraryDatabase
 from calibre.ptempfile import TemporaryFile
 import sys
-
-# from calibre_plugins.calibre_gpt.engine import run_query
 import subprocess
 import os
 import json
@@ -19,7 +17,7 @@ class GPTDialog(QDialog):
         self.gui = gui
         self.do_user_config = do_user_config
         self.legacy_db = LibraryDatabase(base_prefs["library_path"])
-        self.lib_path = os.path.dirname(self.legacy_db.dbpath)
+        self.db_dir = os.path.dirname(self.legacy_db.dbpath)
 
         self.db = gui.current_db
 
@@ -29,7 +27,7 @@ class GPTDialog(QDialog):
         self.setWindowTitle('Calibre GPT')
         self.setWindowIcon(icon)
 
-        self.token = prefs['open_ai_token']
+        self.token = calibregpt_prefs['open_ai_token']
         
         if not self.token:
             self.l.addWidget(QLabel('Add token in configuration window!'))
@@ -87,17 +85,15 @@ class GPTDialog(QDialog):
     def exec_query(self, flags):
         engine = subprocess.Popen(["python3", "-", 
             "--openai-token", self.token,
-            "--fulltext-db", os.path.join(self.lib_path, 'full-text-search.db'), 
-            "--metadata-db", os.path.join(self.lib_path, 'metadata.db'), 
-            "--calibregpt-db", os.path.join(self.lib_path, 'calibregpt.db'), 
-            "--faiss-index", os.path.join(self.lib_path, 'faiss.idx'), 
+            "--fulltext-db", os.path.join(self.db_dir, 'full-text-search.db'), 
+            "--metadata-db", os.path.join(self.db_dir, 'metadata.db'), 
+            "--calibregpt-db", os.path.join(self.db_dir, 'calibregpt.db'), 
+            "--faiss-index", os.path.join(self.db_dir, 'faiss.idx'), 
             "--match-count", "50"] + flags, 
             stdout = subprocess.PIPE, 
             stderr = subprocess.PIPE, 
             stdin = subprocess.PIPE)
         res = engine.communicate(input = get_resources("engine.py"))
-        # print("stdout: ", res[0], file = sys.stderr)
-        # print("stderr: ", res[1], file = sys.stderr)
         data = json.loads(res[0].decode("utf-8"))
         if "error" in data:
             msg = QMessageBox()
