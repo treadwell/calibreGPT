@@ -18,8 +18,8 @@ class GPTDialog(QDialog):
         self.icon = icon
         self.gui = gui
         self.do_user_config = do_user_config
-        self.lib_path = base_prefs['library_path']
         self.legacy_db = LibraryDatabase(base_prefs["library_path"])
+        self.lib_path = os.path.dirname(self.legacy_db.dbpath)
 
         self.db = gui.current_db
 
