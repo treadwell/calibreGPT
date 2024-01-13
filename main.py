@@ -84,13 +84,14 @@ class GPTDialog(QDialog):
         self.close()
 
     def exec_query(self, flags):
+        debug = ["--debug"] if calibregpt_prefs['debug'] else []
         engine = subprocess.Popen(["python3", "-", 
             "--openai-token", self.token,
             "--fulltext-db", os.path.join(self.db_dir, 'full-text-search.db'), 
             "--metadata-db", os.path.join(self.db_dir, 'metadata.db'), 
             "--calibregpt-db", os.path.join(self.db_dir, 'calibregpt.db'), 
             "--faiss-index", os.path.join(self.db_dir, 'faiss.idx'), 
-            "--match-count", "50"] + flags, 
+            "--match-count", "50"] + flags + debug, 
             stdout = subprocess.PIPE, 
             stderr = subprocess.PIPE, 
             stdin = subprocess.PIPE)

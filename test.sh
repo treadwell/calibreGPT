@@ -4,19 +4,17 @@ set -e
 
 PROMPT='Cloud Computing in Higher Education'
 
-FP_FULLTEXT_DB='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/full-text-search.db'
-FP_METADATA_DB='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/metadata.db'
-FP_CALIBREGPT_DB='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/calibregpt.db'
-FP_FAISS_INDEX='/Users/kbrooks/Dropbox/Books/Calibre Travel Library/faiss.idx'
+LIBRARY_NAME='Fiction Library'
+# LIBRARY_NAME='Calibre Travel Library'
+# LIBRARY_NAME='Yoga Calibre Library'
 
-# FP_FULLTEXT_DB='/Users/kbrooks/Dropbox/Books/Yoga Calibre Library/full-text-search.db'
-# FP_METADATA_DB='/Users/kbrooks/Dropbox/Books/Yoga Calibre Library/metadata.db'
-# FP_CALIBREGPT_DB='/Users/kbrooks/Dropbox/Books/Yoga Calibre Library/calibregpt.db'
-# FP_FAISS_INDEX='/Users/kbrooks/Dropbox/Books/Yoga Calibre Library/faiss.idx'
+BASE_PATH="/Users/kbrooks/Dropbox/Books/$LIBRARY_NAME"
+FP_FULLTEXT_DB="$BASE_PATH/full-text-search.db"
+FP_METADATA_DB="$BASE_PATH/metadata.db"
+FP_CALIBREGPT_DB="$BASE_PATH/calibregpt.db"
+FP_FAISS_INDEX="$BASE_PATH/faiss.idx"
 
 clear
-
-export DEBUG=1
 
 echo "testing --prompt"
 python3 engine.py \
@@ -26,7 +24,8 @@ python3 engine.py \
     --calibregpt-db "$FP_CALIBREGPT_DB" \
     --faiss-index "$FP_FAISS_INDEX" \
     --match-count 10 \
-    --prompt "$PROMPT"
+    --prompt "$PROMPT" \
+    --debug
 
 echo "testing --ids"
 python3 engine.py \
@@ -36,4 +35,5 @@ python3 engine.py \
     --calibregpt-db "$FP_CALIBREGPT_DB" \
     --faiss-index "$FP_FAISS_INDEX" \
     --match-count 10 \
-    --ids "1, 2"
+    --ids "1, 2" \
+    --debug

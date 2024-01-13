@@ -4,4 +4,4 @@ primary_action_name = 'Semantic Search'
 secondary_action_name = 'Similar Books'
 primary_description = 'Find books in your library similar to a query string'
 secondary_description = 'Find books in your library similar to selected books'
-version = (1, 0, 8)
+version = (1, 0, 9)

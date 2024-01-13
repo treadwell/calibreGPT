@@ -9,12 +9,16 @@ import numpy as np
 import sys
 import string
 import math
+import time
+import random
 
 DEBUG = False
+DEBUG_FILE = None
 
 def debug(*args):
     if DEBUG:
         print(*args, file = sys.stderr)
+        print(*args, file = DEBUG_FILE)
 
 def open_db(fp, auto_create = True, wal = False):
     if not auto_create and not os.path.exists(fp):
@@ -146,8 +150,23 @@ class MissingChunksIterator():
             raise StopIteration
         return { "id": row[0], "text": row[1] }
 
-def fetch_embeddings(chunks, token):
-    chunks = list(chunks)
+def exp_backoff(fn, args=(), initial_wait=5.0, max_wait=32.0, backoff_factor=2.0, jitter_factor=0.5, max_tries=5):
+    wait_time = initial_wait
+    tries = 0
+    while True:
+        try:
+            return fn(*args)
+        except Exception as e:
+            tries += 1
+            if tries > max_tries:
+                raise e
+            debug(f"Attempt {tries}: Failed: {e}, retrying in {wait_time} seconds...")
+            jitter = wait_time * jitter_factor * random.random()
+            final_wait_time = min(wait_time + jitter, max_wait)
+            time.sleep(final_wait_time)
+            wait_time = min(final_wait_time * backoff_factor, max_wait)
+
+def fetch_embeddings_nobackoff(chunks, token):
     for chunk in chunks:
         debug("fetch embedding: ", chunk[:50].replace('\n', ' ').replace('\r', ''))
     ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -166,6 +185,10 @@ def fetch_embeddings(chunks, token):
     body = response.read()
     data = json.loads(body)
     return list(map(lambda x: np.array(x["embedding"]), data["data"]))
+
+def fetch_embeddings(chunks, token):
+    chunks = list(chunks)
+    return exp_backoff(fetch_embeddings_nobackoff, (chunks, token))
 
 def fetch_embedding(chunk, token):
     return fetch_embeddings([chunk], token)[0]
@@ -369,7 +392,8 @@ def run_query(opts):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(prog = 'CalibreGPT')
-    parser.add_argument('--debug')
+    parser.add_argument('--debug', action = 'store_true')
+    parser.add_argument('--debug-file')
     parser.add_argument('--openai-token')
     parser.add_argument('--fulltext-db')
     parser.add_argument('--metadata-db')
@@ -384,7 +408,11 @@ if __name__ == "__main__":
     mutex.add_argument('--ids')
     
     args = parser.parse_args()
-    DEBUG = os.environ.get("DEBUG") == "1" or args.debug
+    DEBUG = args.debug or args.debug_file is not None
+    if DEBUG:
+        if args.debug_file is None:
+            args.debug_file = 'calibregpt.log' 
+        DEBUG_FILE = open(args.debug_file, 'w')
     
     try:
         print(json.dumps({ "results": run_query(args) }))
