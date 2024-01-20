@@ -34,9 +34,18 @@ class CalibreGPT(InterfaceActionBase):
         print("initialize is running")
         from calibre.customize.ui import _initialized_plugins
         from calibre_plugins.calibre_gpt.secondary import CalibreGPTSecondary
+        from calibre_plugins.calibre_gpt.tertiary import CalibreGPTTertiary
+        
         for plugin in _initialized_plugins:
             if isinstance(plugin, CalibreGPTSecondary):
                 break
         plugin = CalibreGPTSecondary(self.plugin_path)
+        _initialized_plugins.append(plugin)
+        plugin.initialize()
+
+        for plugin in _initialized_plugins:
+            if isinstance(plugin, CalibreGPTTertiary):
+                break
+        plugin = CalibreGPTTertiary(self.plugin_path)
         _initialized_plugins.append(plugin)
         plugin.initialize()

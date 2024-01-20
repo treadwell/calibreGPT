@@ -1,4 +1,4 @@
-from qt.core import QDialog, QVBoxLayout, QPushButton, QLabel, QMessageBox
+from qt.core import QDialog, QVBoxLayout, QPushButton, QLabel, QMessageBox, QTextBrowser
 from PyQt5.Qt import QLineEdit
 from calibre.utils.config_base import prefs as base_prefs
 from calibre_plugins.calibre_gpt.config import prefs as calibregpt_prefs
@@ -46,6 +46,15 @@ class GPTDialog(QDialog):
             self.search_book = QPushButton('Search', self)
             self.l.addWidget(self.search_book)
             self.search_book.clicked.connect(lambda: self.query_book(ids))
+        elif type == 'gpt':
+            self.l.addWidget(QLabel('Enter a query and press search.'))
+            self.prompt = QLineEdit()
+            self.l.addWidget(self.prompt)
+            self.search_text = QPushButton('Search', self)
+            self.l.addWidget(self.search_text)
+            self.search_text.clicked.connect(self.query_gpt)
+            self.response = QTextBrowser()
+            self.l.addWidget(self.response)
         else:
             raise ValueError("Invalid type: main or context expected, received " + type)
 
@@ -56,7 +65,7 @@ class GPTDialog(QDialog):
         self.resize(self.sizeHint())
     
     def query_text(self):
-        data = self.exec_query(["--prompt", self.prompt.text()])
+        data = self.exec_find_similar_chunks(["--prompt", self.prompt.text()])
         if data == None:
             return
         matched_ids = [d["book_id"] for d in data]
@@ -70,7 +79,7 @@ class GPTDialog(QDialog):
         self.close()
 
     def query_book(self, ids):
-        data = self.exec_query(["--ids", ",".join([str(id) for id in ids])])
+        data = self.exec_find_similar_chunks(["--ids", ",".join([str(id) for id in ids])])
         if data == None:
             return
         matched_ids = [d["book_id"] for d in data]
@@ -83,15 +92,31 @@ class GPTDialog(QDialog):
             self.db.set_metadata(d["book_id"], metadata, set_title=False, set_authors=False, commit=True)
         self.close()
 
-    def exec_query(self, flags):
-        debug = ["--debug"] if calibregpt_prefs['debug'] else []
-        engine = subprocess.Popen(["python3", "-", 
+    def query_gpt(self):
+        data = self.exec_generate_response(["--prompt", self.prompt.text()])
+        if data == None:
+            return
+        self.response.setText(data)
+
+    def common_flags(self):
+        return [
+            "python3", "-",
             "--openai-token", self.token,
             "--fulltext-db", os.path.join(self.db_dir, 'full-text-search.db'), 
             "--metadata-db", os.path.join(self.db_dir, 'metadata.db'), 
             "--calibregpt-db", os.path.join(self.db_dir, 'calibregpt.db'), 
-            "--faiss-index", os.path.join(self.db_dir, 'faiss.idx'), 
-            "--match-count", "50"] + flags + debug, 
+            "--faiss-index", os.path.join(self.db_dir, 'faiss.idx')
+        ]
+
+    def exec_generate_response(self, flags):
+        return self.exec_query(self.common_flags() + ["--match-count", "1 ", "generate-response"] + flags)
+    
+    def exec_find_similar_chunks(self, flags):
+        return self.exec_query(self.common_flags() + ["--match-count", "50", "find-similar-chunks"] + flags)
+
+    def exec_query(self, args):
+        debug = ["--debug"] if calibregpt_prefs['debug'] else []
+        engine = subprocess.Popen(args + debug, 
             stdout = subprocess.PIPE, 
             stderr = subprocess.PIPE, 
             stdin = subprocess.PIPE)

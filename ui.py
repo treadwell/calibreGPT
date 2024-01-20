@@ -37,3 +37,19 @@ class InterfacePluginSecondary(InterfaceAction):
 
     def show(self):
         show_dialog(self.gui, self.qaction, self.interface_action_base_plugin.do_user_config, "context")
+
+class InterfacePluginTertiary(InterfaceAction):
+
+    name = strings.tertiary_name
+    action_spec = (strings.tertiary_action_name, None, strings.tertiary_description, None)
+    dont_add_to = frozenset(['context-menu',
+        'context-menu-device', 'menubar', 'menubar-device',
+        'context-menu-cover-browser', 'context-menu-split', 'searchbar'])
+    
+    def genesis(self):
+        self.icon = get_icons('images/icon.png', self.name)
+        self.qaction.setIcon(self.icon)
+        self.qaction.triggered.connect(self.show)
+
+    def show(self):
+        show_dialog(self.gui, self.qaction, self.interface_action_base_plugin.do_user_config, "gpt")

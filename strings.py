@@ -1,7 +1,10 @@
 primary_name = 'Calibre GPT: Search by Text'
 secondary_name = 'Calibre GPT: Search by Selected Books'
+tertiary_name = 'Calibre GPT: Ask GPT'
 primary_action_name = 'Semantic Search'
 secondary_action_name = 'Similar Books'
+tertiary_action_name = 'Ask GPT'
 primary_description = 'Find books in your library similar to a query string'
 secondary_description = 'Find books in your library similar to selected books'
-version = (1, 0, 9)
+tertiary_description = 'Ask GPT using books in your library'
+version = (1, 1, 0)

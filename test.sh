@@ -16,7 +16,7 @@ FP_FAISS_INDEX="$BASE_PATH/faiss.idx"
 
 clear
 
-echo "testing --prompt"
+echo "testing find-similar-chunks --prompt"
 python3 engine.py \
     --openai-token "$OPENAI_TOKEN" \
     --fulltext-db "$FP_FULLTEXT_DB" \
@@ -24,10 +24,10 @@ python3 engine.py \
     --calibregpt-db "$FP_CALIBREGPT_DB" \
     --faiss-index "$FP_FAISS_INDEX" \
     --match-count 10 \
-    --prompt "$PROMPT" \
-    --debug
+    find-similar-chunks \
+    --prompt "$PROMPT" | jq
 
-echo "testing --ids"
+echo "testing find-similar-chunks --ids"
 python3 engine.py \
     --openai-token "$OPENAI_TOKEN" \
     --fulltext-db "$FP_FULLTEXT_DB" \
@@ -35,5 +35,16 @@ python3 engine.py \
     --calibregpt-db "$FP_CALIBREGPT_DB" \
     --faiss-index "$FP_FAISS_INDEX" \
     --match-count 10 \
-    --ids "1, 2" \
-    --debug
+    find-similar-chunks \
+    --ids "1, 2" | jq
+
+echo "testing generate-response --prompt"
+python3 engine.py \
+    --openai-token "$OPENAI_TOKEN" \
+    --fulltext-db "$FP_FULLTEXT_DB" \
+    --metadata-db "$FP_METADATA_DB" \
+    --calibregpt-db "$FP_CALIBREGPT_DB" \
+    --faiss-index "$FP_FAISS_INDEX" \
+    --match-count 1 \
+    generate-response \
+    --prompt "$PROMPT" | jq

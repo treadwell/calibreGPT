@@ -210,6 +210,38 @@ def fetch_missing_embeddings(batch_size, calibregpt_db, faiss_index, token):
     if len(chunks) > 0:
         fetch_missing_embeddings_(chunks, calibregpt_db, faiss_index, token)
 
+def get_chunk_text(calibregpt_db, chunk_id):
+    cursor = calibregpt_db.cursor()
+    cursor.execute("select text from book_chunks where id = ?", [chunk_id])
+    return cursor.fetchone()[0]
+
+def fetch_gpt_nobackoff(messages, token):
+    ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ssl_ctx.load_verify_locations(certifi.where())
+    connection = http.client.HTTPSConnection("api.openai.com", context=ssl_ctx)
+    body = json.dumps({ 
+        "messages": messages, 
+        "model": "gpt-3.5-turbo"
+    })
+    connection.request("POST", "/v1/chat/completions", body, {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + token
+    })
+    response = connection.getresponse()
+    if response.status != 200: 
+        raise ValueError("OpenAI call failed " + str(response.status) + " with reason: " + response.reason)
+    body = response.read()
+    data = json.loads(body)
+    return data["choices"][0]["message"]["content"]
+
+def fetch_gpt(messages, token):
+    return exp_backoff(fetch_gpt_nobackoff, (messages, token))
+
+def generate_response(calibregpt_db, openai_token, ranking, prompt):
+    messages = [{"role": "system", "content": get_chunk_text(calibregpt_db, r["chunk_id"])} for r in ranking]
+    messages = messages + [{"role": "user", "content": prompt}]
+    return fetch_gpt(messages, openai_token)
+
 def commit_updates(calibregpt_db, faiss_index, faiss_index_fp):
     calibregpt_db.commit()
     persist_faiss_index(faiss_index, faiss_index_fp)
@@ -379,15 +411,21 @@ def run_query(opts):
 
     update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, fp_faiss_index, updates, openai_token, batch_size, chunk_size, overlap_percent)
 
-    prompt_embedding = get_prompt(opts, calibregpt_db)
+    result = None
 
+    prompt_embedding = get_prompt(opts, calibregpt_db)
     ranking = search_faiss_index(faiss_index, prompt_embedding, calibregpt_db, match_count)
+
+    if opts.command == "find-similar-chunks":
+        result = ranking
+    elif opts.command == "generate-response":
+        result = generate_response(calibregpt_db, openai_token, ranking, opts.prompt)
     
     close_db(fulltext_db)
     close_db(metadata_db)
     close_db(calibregpt_db)
 
-    return ranking
+    return result
 
 if __name__ == "__main__":
     import argparse
@@ -403,11 +441,16 @@ if __name__ == "__main__":
     parser.add_argument('--overlap-percent', default = 0.2)
     parser.add_argument('--match-count', default = 30)
     parser.add_argument('--batch-size', default = 2048)
-    mutex = parser.add_mutually_exclusive_group()
+    subparsers = parser.add_subparsers(required = True, dest = "command")
+    cmd_find_similar_chunks = subparsers.add_parser("find-similar-chunks")
+    mutex = cmd_find_similar_chunks.add_mutually_exclusive_group()
     mutex.add_argument('--prompt')
     mutex.add_argument('--ids')
+    cmd_generate_response = subparsers.add_parser("generate-response")
+    cmd_generate_response.add_argument('--prompt')
     
     args = parser.parse_args()
+
     DEBUG = args.debug or args.debug_file is not None
     if DEBUG:
         if args.debug_file is None:
