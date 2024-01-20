@@ -221,7 +221,7 @@ def fetch_gpt_nobackoff(messages, token):
     connection = http.client.HTTPSConnection("api.openai.com", context=ssl_ctx)
     body = json.dumps({ 
         "messages": messages, 
-        "model": "gpt-3.5-turbo"
+        "model": "gpt-4"
     })
     connection.request("POST", "/v1/chat/completions", body, {
         "Content-Type": "application/json",

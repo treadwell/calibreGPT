@@ -2,10 +2,10 @@
 
 set -e
 
-PROMPT='Cloud Computing in Higher Education'
+PROMPT='What is Amplify Education performance in customer service?'
 
-LIBRARY_NAME='Fiction Library'
-# LIBRARY_NAME='Calibre Travel Library'
+# LIBRARY_NAME='Fiction Library'
+LIBRARY_NAME='Calibre Travel Library'
 # LIBRARY_NAME='Yoga Calibre Library'
 
 BASE_PATH="/Users/kbrooks/Dropbox/Books/$LIBRARY_NAME"
@@ -45,6 +45,7 @@ python3 engine.py \
     --metadata-db "$FP_METADATA_DB" \
     --calibregpt-db "$FP_CALIBREGPT_DB" \
     --faiss-index "$FP_FAISS_INDEX" \
-    --match-count 1 \
+    --match-count 5 \
+    --debug \
     generate-response \
     --prompt "$PROMPT" | jq

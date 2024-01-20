@@ -109,7 +109,7 @@ class GPTDialog(QDialog):
         ]
 
     def exec_generate_response(self, flags):
-        return self.exec_query(self.common_flags() + ["--match-count", "1 ", "generate-response"] + flags)
+        return self.exec_query(self.common_flags() + ["--match-count", "5", "generate-response"] + flags)
     
     def exec_find_similar_chunks(self, flags):
         return self.exec_query(self.common_flags() + ["--match-count", "50", "find-similar-chunks"] + flags)
