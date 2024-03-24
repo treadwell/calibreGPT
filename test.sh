@@ -24,6 +24,7 @@ python3 engine.py \
     --calibregpt-db "$FP_CALIBREGPT_DB" \
     --faiss-index "$FP_FAISS_INDEX" \
     --match-count 10 \
+    --debug \
     find-similar-chunks \
     --prompt "$PROMPT" | jq
 
@@ -35,6 +36,7 @@ python3 engine.py \
     --calibregpt-db "$FP_CALIBREGPT_DB" \
     --faiss-index "$FP_FAISS_INDEX" \
     --match-count 10 \
+    --debug \
     find-similar-chunks \
     --ids "1, 2" | jq
 
@@ -49,3 +51,13 @@ python3 engine.py \
     --debug \
     generate-response \
     --prompt "$PROMPT" | jq
+
+echo "testing find-unindexed"
+python3 engine.py \
+    --openai-token "$OPENAI_TOKEN" \
+    --fulltext-db "$FP_FULLTEXT_DB" \
+    --metadata-db "$FP_METADATA_DB" \
+    --calibregpt-db "$FP_CALIBREGPT_DB" \
+    --faiss-index "$FP_FAISS_INDEX" \
+    --debug \
+    find-unindexed | jq

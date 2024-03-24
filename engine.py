@@ -389,11 +389,28 @@ def get_prompt(opts, calibregpt_db):
     else:
         raise ValueError('Neither prompt nor ids provided.')
 
+def find_unindexed(metadata_db, fp_fulltext_db):
+    cursor = metadata_db.cursor()
+    cursor.execute("attach database ? as fts_db", [fp_fulltext_db])
+    cursor.execute("""
+        select b.id from books b
+        left join fts_db.books_text ft on b.id = ft.book
+        where ft.book is null
+    """)
+    ids = [d[0] for d in cursor.fetchall()]
+    return ids
+
 def run_query(opts):
 
-    openai_token = opts.openai_token
     fp_fulltext_db = opts.fulltext_db
     fp_metadata_db = opts.metadata_db
+    metadata_db = open_db(fp_metadata_db, False)
+
+    if opts.command == "find-unindexed":
+        return find_unindexed(metadata_db, fp_fulltext_db)
+
+    fulltext_db = open_db(fp_fulltext_db, False)
+    openai_token = opts.openai_token
     fp_calibregpt_db = opts.calibregpt_db
     fp_faiss_index = opts.faiss_index
     match_count = int(opts.match_count)
@@ -401,8 +418,6 @@ def run_query(opts):
     chunk_size = int(opts.chunk_size)
     overlap_percent = float(opts.overlap_percent)
 
-    fulltext_db = open_db(fp_fulltext_db, False)
-    metadata_db = open_db(fp_metadata_db, False)
     calibregpt_db = open_db(fp_calibregpt_db, True, True)
     setup_calibregpt_db(calibregpt_db)
     faiss_index = open_faiss_index(fp_faiss_index)
@@ -448,6 +463,7 @@ if __name__ == "__main__":
     mutex.add_argument('--ids')
     cmd_generate_response = subparsers.add_parser("generate-response")
     cmd_generate_response.add_argument('--prompt')
+    subparsers.add_parser("find-unindexed")
     
     args = parser.parse_args()
 

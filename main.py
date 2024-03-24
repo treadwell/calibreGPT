@@ -58,11 +58,24 @@ class GPTDialog(QDialog):
         else:
             raise ValueError("Invalid type: main or context expected, received " + type)
 
+        self.index_button = QPushButton('Show un-indexed books', self)
+        self.index_button.clicked.connect(self.show_unindexed)
+        self.l.addWidget(self.index_button)
+        
         self.conf_button = QPushButton('Configure this plugin', self)
         self.conf_button.clicked.connect(self.config)
         self.l.addWidget(self.conf_button)
 
         self.resize(self.sizeHint())
+
+    def show_unindexed(self):
+        data = self.exec_find_unindexed()
+        if data == None:
+            data = []
+        self.db.set_marked_ids(data)
+        self.gui.search.setEditText('marked:true')
+        self.gui.search.do_search()
+        self.close()
     
     def query_text(self):
         data = self.exec_find_similar_chunks(["--prompt", self.prompt.text()])
@@ -113,6 +126,9 @@ class GPTDialog(QDialog):
     
     def exec_find_similar_chunks(self, flags):
         return self.exec_query(self.common_flags() + ["--match-count", "50", "find-similar-chunks"] + flags)
+
+    def exec_find_unindexed(self):
+        return self.exec_query(self.common_flags() + ["find-unindexed"])
 
     def exec_query(self, args):
         debug = ["--debug"] if calibregpt_prefs['debug'] else []
