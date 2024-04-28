@@ -237,10 +237,10 @@ def fetch_gpt_nobackoff(messages, token):
 def fetch_gpt(messages, token):
     return exp_backoff(fetch_gpt_nobackoff, (messages, token))
 
-def generate_response(calibregpt_db, openai_token, ranking, prompt):
-    messages = [{"role": "system", "content": get_chunk_text(calibregpt_db, r["chunk_id"])} for r in ranking]
-    messages = messages + [{"role": "user", "content": prompt}]
-    return fetch_gpt(messages, openai_token)
+def generate_response(openai_token, prompt, state):
+    state = state + [{"role": "user", "content": prompt}]
+    state = state + [{"role": "assistant", "content": fetch_gpt(state, openai_token)}]
+    return state
 
 def commit_updates(calibregpt_db, faiss_index, faiss_index_fp):
     calibregpt_db.commit()
@@ -422,19 +422,27 @@ def run_query(opts):
     setup_calibregpt_db(calibregpt_db)
     faiss_index = open_faiss_index(fp_faiss_index)
 
-    updates = CalibreUpdatesIter(fulltext_db, calibregpt_db, metadata_db)
+    if hasattr(opts, "state"):
+        if opts.state is None or opts.state == "":
+            opts.state = None
+        else:
+            opts.state = json.loads(opts.state)
 
-    update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, fp_faiss_index, updates, openai_token, batch_size, chunk_size, overlap_percent)
+    if opts.command != "generate-response" or opts.state is None:
+        updates = CalibreUpdatesIter(fulltext_db, calibregpt_db, metadata_db)
+        update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, fp_faiss_index, updates, openai_token, batch_size, chunk_size, overlap_percent)
 
     result = None
 
-    prompt_embedding = get_prompt(opts, calibregpt_db)
-    ranking = search_faiss_index(faiss_index, prompt_embedding, calibregpt_db, match_count)
-
     if opts.command == "find-similar-chunks":
-        result = ranking
+        prompt_embedding = get_prompt(opts, calibregpt_db)
+        result = search_faiss_index(faiss_index, prompt_embedding, calibregpt_db, match_count)
     elif opts.command == "generate-response":
-        result = generate_response(calibregpt_db, openai_token, ranking, opts.prompt)
+        if opts.state is None:
+            prompt_embedding = get_prompt(opts, calibregpt_db)
+            ranking = search_faiss_index(faiss_index, prompt_embedding, calibregpt_db, match_count)
+            opts.state = [{"role": "system", "content": get_chunk_text(calibregpt_db, r["chunk_id"])} for r in ranking]
+        result = generate_response(openai_token, opts.prompt, opts.state)
     
     close_db(fulltext_db)
     close_db(metadata_db)
@@ -463,6 +471,7 @@ if __name__ == "__main__":
     mutex.add_argument('--ids')
     cmd_generate_response = subparsers.add_parser("generate-response")
     cmd_generate_response.add_argument('--prompt')
+    cmd_generate_response.add_argument('--state')
     subparsers.add_parser("find-unindexed")
     
     args = parser.parse_args()

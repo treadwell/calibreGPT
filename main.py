@@ -106,10 +106,19 @@ class GPTDialog(QDialog):
         self.close()
 
     def query_gpt(self):
-        data = self.exec_generate_response(["--prompt", self.prompt.text()])
-        if data == None:
+        if not hasattr(self, "state"):
+            state = ""
+        else:
+            state = json.dumps(self.state)
+        prompt = self.prompt.text()
+        self.response.append(prompt)
+        self.response.append("\n")
+        self.prompt.clear()
+        self.state = self.exec_generate_response(["--prompt", prompt, "--state", state])
+        if self.state == None:
             return
-        self.response.setText(data)
+        self.response.append(self.state[len(self.state) - 1]["content"])
+        self.response.append("\n")
 
     def common_flags(self):
         return [
@@ -137,6 +146,7 @@ class GPTDialog(QDialog):
             stderr = subprocess.PIPE, 
             stdin = subprocess.PIPE)
         res = engine.communicate(input = get_resources("engine.py"))
+        print(res)
         data = json.loads(res[0].decode("utf-8"))
         if "error" in data:
             msg = QMessageBox()

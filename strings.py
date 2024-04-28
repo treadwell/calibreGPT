@@ -7,4 +7,4 @@ tertiary_action_name = 'Ask GPT'
 primary_description = 'Find books in your library similar to a query string'
 secondary_description = 'Find books in your library similar to selected books'
 tertiary_description = 'Ask GPT using books in your library'
-version = (1, 1, 0)
+version = (1, 2, 0)
