@@ -11,6 +11,7 @@ import string
 import math
 import time
 import random
+import re
 
 DEBUG = False
 DEBUG_FILE = None
@@ -203,7 +204,9 @@ def fetch_missing_embeddings_(chunks, calibregpt_db, faiss_index, token):
 def fetch_missing_embeddings(batch_size, calibregpt_db, faiss_index, token):
     chunks = []
     for mc in MissingChunksIterator(calibregpt_db):
-        chunks.append(mc)
+        mc["text"] = re.sub("[^\w\s]", "", mc["text"])
+        if len(mc["text"]) > 0:
+            chunks.append(mc)
         if len(chunks) >= batch_size:
             fetch_missing_embeddings_(chunks, calibregpt_db, faiss_index, token)
             chunks = []

@@ -1,12 +1,13 @@
 #!/bin/sh
 
 set -e
+set -o pipefail
 
-PROMPT='What is Amplify Education performance in customer service?'
+PROMPT='Tai Chi Brush Knee'
 
 # LIBRARY_NAME='Fiction Library'
-LIBRARY_NAME='Calibre Travel Library'
-# LIBRARY_NAME='Yoga Calibre Library'
+# LIBRARY_NAME='Calibre Travel Library'
+LIBRARY_NAME='Yoga Calibre Library'
 
 BASE_PATH="/Users/kbrooks/Dropbox/Books/$LIBRARY_NAME"
 FP_FULLTEXT_DB="$BASE_PATH/full-text-search.db"

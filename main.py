@@ -145,9 +145,10 @@ class GPTDialog(QDialog):
             stdout = subprocess.PIPE, 
             stderr = subprocess.PIPE, 
             stdin = subprocess.PIPE)
-        res = engine.communicate(input = get_resources("engine.py"))
-        print(res)
-        data = json.loads(res[0].decode("utf-8"))
+        outs, errs = engine.communicate(input = get_resources("engine.py"))
+        if engine.returncode != 0:
+            raise ValueError(errs)
+        data = json.loads(outs.decode("utf-8"))
         if "error" in data:
             msg = QMessageBox()
             msg.setIcon(QMessageBox.Critical)
