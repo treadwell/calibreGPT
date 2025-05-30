@@ -181,10 +181,14 @@ def fetch_embeddings_nobackoff(chunks, token):
         "Authorization": "Bearer " + token
     })
     response = connection.getresponse()
+    body_bytes = response.read()
+    body_text  = body_bytes.decode("utf-8", errors="replace")
+
     if response.status != 200:
-        raise ValueError("OpenAI call failed " + str(response.status) + " with reason: " + response.reason)
-    body = response.read()
-    data = json.loads(body)
+        raise RuntimeError(
+            f"OpenAI call failed {response.status} with {response.reason} - {body_text}"
+        )
+    data = json.loads(body.text)
     return list(map(lambda x: np.array(x["embedding"]), data["data"]))
 
 def fetch_embeddings(chunks, token):
