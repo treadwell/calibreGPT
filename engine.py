@@ -188,7 +188,7 @@ def fetch_embeddings_nobackoff(chunks, token):
         raise RuntimeError(
             f"OpenAI call failed {response.status} with {response.reason} - {body_text}"
         )
-    data = json.loads(body.text)
+    data = json.loads(body_text)
     return list(map(lambda x: np.array(x["embedding"]), data["data"]))
 
 def fetch_embeddings(chunks, token):
@@ -470,7 +470,8 @@ if __name__ == "__main__":
     parser.add_argument('--chunk-size', default = 4096)
     parser.add_argument('--overlap-percent', default = 0.2)
     parser.add_argument('--match-count', default = 30)
-    parser.add_argument('--batch-size', default = 2048)
+    parser.add_argument('--batch-size', default = 256)
+    # parser.add_argument('--batch-size', default = 2048)
     subparsers = parser.add_subparsers(required = True, dest = "command")
     cmd_find_similar_chunks = subparsers.add_parser("find-similar-chunks")
     mutex = cmd_find_similar_chunks.add_mutually_exclusive_group()
