@@ -102,6 +102,8 @@ class BookChunksIter():
     def __init__(self, id, db, chunk_size, overlap_percent):
         self.overlap_size = math.floor(chunk_size * overlap_percent)
         self.chunk_size = math.floor(chunk_size - 2 * self.overlap_size)
+        if self.chunk_size <= 0:
+            raise ValueError("chunk_size and overlap_percent produce non-positive chunk stride")
         debug("Check chunks:", self.overlap_size, self.chunk_size, chunk_size, overlap_percent)
         self.position = 0
         cursor = db.cursor()
@@ -115,14 +117,10 @@ class BookChunksIter():
         debug("Book Chunks Iterator - next")
         if self.position >= self.text_length:
             raise StopIteration
-        start_idx = self.position - self.overlap_size
-        if start_idx < 0:
-            start_idx = 0
-        end_idx = self.position + self.chunk_size + self.overlap_size
-        if end_idx > self.text_length - 1:
-            end_idx = self.text_length - 1
+        start_idx = max(0, self.position - self.overlap_size)
+        end_idx = min(self.position + self.chunk_size + self.overlap_size, self.text_length)
         # TODO: cutting words in half at boundaries
-        self.position = end_idx + 1
+        self.position += self.chunk_size
         debug("BCI start: ", start_idx, "BCI end: ", end_idx, "BCI position: ", self.position)
         return self.text[start_idx:end_idx]
 
