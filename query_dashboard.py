@@ -181,9 +181,9 @@ def render_page(
         }});
     }}
     function setDrag(ev, fileUrl, filePath, fileName) {{
-      ev.dataTransfer.setData('DownloadURL', 'application/octet-stream:' + fileName + ':' + fileUrl);
       ev.dataTransfer.setData('text/uri-list', fileUrl);
       ev.dataTransfer.setData('text/plain', filePath);
+      ev.dataTransfer.effectAllowed = 'copy';
       showStatus('Dragging: ' + fileName);
     }}
   </script>
