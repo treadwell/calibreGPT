@@ -103,10 +103,12 @@ python3 retrieval_validation.py \
   --baseline-model text-embedding-ada-002 \
   --candidate-model text-embedding-3-small \
   --top-k 20 \
-  --output retrieval_validation_report.json
+  --output retrieval_validation_report.json \
+  --manual-review-output retrieval_manual_review.json
 ```
 
 Populate `expected_book_ids` in your query file for objective hit/MRR metrics.
+Use `retrieval_manual_review.json` to review only low-overlap query disagreements (`only_baseline` vs `only_candidate` IDs/titles/authors).
 
 ## License
 

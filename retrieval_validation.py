@@ -100,6 +100,34 @@ def overlap_ratio(a: List[int], b: List[int], k: int) -> float:
     return len(set(a[:k]).intersection(set(b[:k]))) / float(k)
 
 
+def result_lookup(results: List[Dict], k: int) -> Dict[int, Dict]:
+    lookup: Dict[int, Dict] = {}
+    for row in results[:k]:
+        bid = int(row["book_id"])
+        if bid not in lookup:
+            lookup[bid] = {
+                "book_id": bid,
+                "title": row.get("title", ""),
+                "author": row.get("author", ""),
+            }
+    return lookup
+
+
+def disagreement_payload(base_results: List[Dict], cand_results: List[Dict], k: int) -> Dict:
+    base_lookup = result_lookup(base_results, k)
+    cand_lookup = result_lookup(cand_results, k)
+    base_ids = list(base_lookup.keys())
+    cand_ids = list(cand_lookup.keys())
+    shared = [bid for bid in base_ids if bid in cand_lookup]
+    only_base = [bid for bid in base_ids if bid not in cand_lookup]
+    only_cand = [bid for bid in cand_ids if bid not in base_lookup]
+    return {
+        "shared_ids": shared,
+        "only_baseline": [base_lookup[bid] for bid in only_base],
+        "only_candidate": [cand_lookup[bid] for bid in only_cand],
+    }
+
+
 def summarize(per_query: List[Dict], model_a: str, model_b: str, k: int) -> Dict:
     overlap_values = [item["overlap_at_k"] for item in per_query]
     mrr_a = [item["metrics"][model_a]["rr"] for item in per_query if item["has_expectations"]]
@@ -130,6 +158,7 @@ def main() -> int:
     parser.add_argument("--top-k", type=int, default=20)
     parser.add_argument("--skip-sync", action="store_true", default=True)
     parser.add_argument("--output", default="retrieval_validation_report.json")
+    parser.add_argument("--manual-review-output", default="retrieval_manual_review.json")
     args = parser.parse_args()
 
     engine_path = os.path.abspath(args.engine)
@@ -138,6 +167,7 @@ def main() -> int:
 
     queries = load_queries(args.queries_file)
     per_query = []
+    manual_review = []
     for case in queries:
         base_results = run_search(
             engine_path=engine_path,
@@ -160,6 +190,7 @@ def main() -> int:
 
         base_ids = [int(r["book_id"]) for r in base_results]
         cand_ids = [int(r["book_id"]) for r in cand_results]
+        disagreements = disagreement_payload(base_results, cand_results, args.top_k)
         has_expectations = len(case.expected_book_ids) > 0
         per_query.append(
             {
@@ -182,6 +213,17 @@ def main() -> int:
                 },
             }
         )
+        manual_review.append(
+            {
+                "id": case.id,
+                "query": case.query,
+                "overlap_at_k": round(overlap_ratio(base_ids, cand_ids, args.top_k), 4),
+                "shared_count": len(disagreements["shared_ids"]),
+                "only_baseline_count": len(disagreements["only_baseline"]),
+                "only_candidate_count": len(disagreements["only_candidate"]),
+                "disagreement": disagreements,
+            }
+        )
 
     summary = summarize(per_query, args.baseline_model, args.candidate_model, args.top_k)
     report = {
@@ -193,8 +235,22 @@ def main() -> int:
     }
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
+    manual_review.sort(key=lambda row: (row["overlap_at_k"], -row["only_baseline_count"] - row["only_candidate_count"]))
+    with open(args.manual_review_output, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "library_path": os.path.abspath(args.library_path),
+                "baseline_model": args.baseline_model,
+                "candidate_model": args.candidate_model,
+                "k": args.top_k,
+                "queries": manual_review,
+            },
+            f,
+            indent=2,
+        )
     print(json.dumps(summary, indent=2))
     print(f"report_path={os.path.abspath(args.output)}")
+    print(f"manual_review_path={os.path.abspath(args.manual_review_output)}")
     return 0
 
 
