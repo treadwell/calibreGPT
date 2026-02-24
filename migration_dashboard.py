@@ -18,6 +18,7 @@ from migration_utils import load_libraries, migrate_once, migration_status
 class LibraryState:
     path: str
     running: bool = False
+    busy: bool = False
     last_status: Dict = field(default_factory=dict)
     last_migration: Dict = field(default_factory=dict)
     last_error: str = ""
@@ -75,14 +76,18 @@ class MigrationDashboard:
                 state = self.states[library_path]
                 if not state.running:
                     return
+                state.busy = True
             self.refresh_status(library_path)
             with self.lock:
                 remaining = state.last_status.get("remaining", 0)
             if remaining == 0:
                 with self.lock:
                     state.running = False
+                    state.busy = False
                 return
             self.migrate_once(library_path)
+            with self.lock:
+                state.busy = False
             time.sleep(self.sleep_seconds)
 
     def start(self, library_path: str) -> None:
@@ -98,11 +103,35 @@ class MigrationDashboard:
         with self.lock:
             self.states[library_path].running = False
 
+    def run_once_async(self, library_path: str) -> None:
+        with self.lock:
+            state = self.states[library_path]
+            if state.running or state.busy:
+                return
+            state.busy = True
+
+        def _run_once():
+            try:
+                self.refresh_status(library_path)
+                with self.lock:
+                    remaining = self.states[library_path].last_status.get("remaining", 0)
+                if remaining > 0:
+                    self.migrate_once(library_path)
+            finally:
+                with self.lock:
+                    self.states[library_path].busy = False
+
+        t = threading.Thread(target=_run_once, daemon=True)
+        with self.lock:
+            state.worker = t
+        t.start()
+
     def snapshot(self) -> Dict[str, Dict]:
         with self.lock:
             return {
                 lib: {
                     "running": st.running,
+                    "busy": st.busy,
                     "last_status": dict(st.last_status),
                     "last_migration": dict(st.last_migration),
                     "last_error": st.last_error,
@@ -118,8 +147,6 @@ def make_handler(app: MigrationDashboard):
                 self.send_response(404)
                 self.end_headers()
                 return
-            for library_path in app.states:
-                app.refresh_status(library_path)
             snapshot = app.snapshot()
             body = render_dashboard(snapshot, app.embedding_model, app.active_model, app.batch_size)
             self.send_response(200)
@@ -146,7 +173,7 @@ def make_handler(app: MigrationDashboard):
             elif action == "pause":
                 app.pause(library)
             elif action == "run_once":
-                app.migrate_once(library)
+                app.run_once_async(library)
             elif action == "refresh":
                 app.refresh_status(library)
             self.send_response(303)
@@ -169,7 +196,7 @@ def render_dashboard(snapshot: Dict[str, Dict], embedding_model: str, active_mod
             f"""
             <tr>
               <td><code>{html.escape(library)}</code></td>
-              <td>{'RUNNING' if state.get('running') else 'PAUSED'}</td>
+              <td>{'RUNNING' if state.get('running') else ('BUSY' if state.get('busy') else 'PAUSED')}</td>
               <td>{status.get('up_to_date', '-')}/{status.get('total_chunks', '-')}</td>
               <td>{status.get('remaining', '-')}</td>
               <td>{status.get('progress_percent', '-')}%</td>
