@@ -61,6 +61,7 @@ The project consists of several key components:
 - `migrate_embeddings.sh`: Single-library resumable embedding migration runner
 - `migrate_multi_library.py`: Round-robin migration runner for many libraries
 - `migration_dashboard.py`: Local migration dashboard UI (status/start/pause/run-once)
+- `retrieval_validation.py`: Model-vs-model retrieval quality comparison on a query set
 
 ### Multi-library Migration
 
@@ -90,6 +91,22 @@ python3 migration_dashboard.py \
   --embedding-model text-embedding-3-small \
   --batch-size 64
 ```
+
+### Retrieval Validation Harness
+
+Use the test library and compare baseline (`ada-002`) versus candidate (`text-embedding-3-small`) retrieval:
+
+```bash
+python3 retrieval_validation.py \
+  --library-path "/Users/kbrooks/Dropbox/Books/calibreGPT_test_lg" \
+  --queries-file retrieval_queries.example.json \
+  --baseline-model text-embedding-ada-002 \
+  --candidate-model text-embedding-3-small \
+  --top-k 20 \
+  --output retrieval_validation_report.json
+```
+
+Populate `expected_book_ids` in your query file for objective hit/MRR metrics.
 
 ## License
 

@@ -4,3 +4,7 @@ calibre_gpt
 calibre_gpt.zip
 calibregpt.log
 .chat.json
+__pycache__/
+tests/__pycache__/
+.migration_dashboard_state.json
+retrieval_validation_report.json

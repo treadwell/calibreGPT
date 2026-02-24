@@ -634,6 +634,7 @@ def run_query(opts):
 
     fulltext_db = open_db(fp_fulltext_db, False)
     openai_token = opts.openai_token or os.environ.get("OPENAI_TOKEN")
+    opts.openai_token = openai_token
     fp_calibregpt_db = opts.calibregpt_db
     embedding_model = query_embedding_model(opts)
     embedding_dimensions(embedding_model)
@@ -653,7 +654,7 @@ def run_query(opts):
         else:
             opts.state = json.loads(opts.state)
 
-    should_sync_default_index = opts.command in ("find-similar-chunks", "generate-response")
+    should_sync_default_index = (not opts.skip_sync) and opts.command in ("find-similar-chunks", "generate-response")
     if should_sync_default_index and (opts.command != "generate-response" or opts.state is None):
         default_faiss_index = open_faiss_index(
             fp_default_faiss_index,
@@ -727,6 +728,7 @@ if __name__ == "__main__":
     parser.add_argument('--overlap-percent', default = 0.2)
     parser.add_argument('--match-count', default = 30)
     parser.add_argument('--batch-size', default = 256)
+    parser.add_argument('--skip-sync', action='store_true')
     # parser.add_argument('--batch-size', default = 2048)
     subparsers = parser.add_subparsers(required = True, dest = "command")
     cmd_find_similar_chunks = subparsers.add_parser("find-similar-chunks")
