@@ -526,6 +526,41 @@ def stale_or_missing_chunk_embeddings_iter(calibregpt_db, embedding_model):
         yield {"id": row[0], "text": clean_text, "text_hash": new_hash, "reason": reason}
 
 
+def count_stale_or_missing(calibregpt_db, embedding_model):
+    missing = 0
+    stale = 0
+    for item in stale_or_missing_chunk_embeddings_iter(calibregpt_db, embedding_model):
+        if item["reason"] == "missing":
+            missing += 1
+        elif item["reason"] == "stale":
+            stale += 1
+    return missing, stale
+
+
+def persist_model_embeddings_batch(calibregpt_db, faiss_index, faiss_index_fp, embedding_model, batch, embeddings):
+    ids = np.array([b["id"] for b in batch], dtype="int64")
+    faiss_index.remove_ids(faiss.IDSelectorBatch(ids))
+    cursor = calibregpt_db.cursor()
+    now = int(time.time())
+    for record, embedding in zip(batch, embeddings):
+        cursor.execute(
+            """
+                insert or replace into chunk_embeddings
+                (id_chunk, model, text_hash, embedding, updated_at)
+                values (?, ?, ?, ?, ?)
+            """,
+            [
+                record["id"],
+                embedding_model,
+                record["text_hash"],
+                embedding.astype("float64").tobytes(),
+                now,
+            ],
+        )
+    faiss_index.add_with_ids(np.vstack(embeddings), ids)
+    commit_updates(calibregpt_db, faiss_index, faiss_index_fp)
+
+
 def migrate_embeddings(batch_size, calibregpt_db, faiss_index, faiss_index_fp, token, embedding_model):
     if embedding_model == DEFAULT_EMBEDDING_MODEL:
         raise ValueError("migrate-embeddings expects a non-default target model")
@@ -535,83 +570,27 @@ def migrate_embeddings(batch_size, calibregpt_db, faiss_index, faiss_index_fp, t
     inserted = 0
     refreshed = 0
     batch = []
-
     for chunk in stale_or_missing_chunk_embeddings_iter(calibregpt_db, embedding_model):
         batch.append(chunk)
-        if len(batch) < batch_size:
-            continue
-
-        embeddings = fetch_embeddings_for_model([b["text"] for b in batch], token, embedding_model)
-        ids = np.array([b["id"] for b in batch], dtype="int64")
-        faiss_index.remove_ids(faiss.IDSelectorBatch(ids))
-        cursor = calibregpt_db.cursor()
-        now = int(time.time())
-        for record, embedding in zip(batch, embeddings):
-            cursor.execute(
-                """
-                    insert or replace into chunk_embeddings
-                    (id_chunk, model, text_hash, embedding, updated_at)
-                    values (?, ?, ?, ?, ?)
-                """,
-                [
-                    record["id"],
-                    embedding_model,
-                    record["text_hash"],
-                    embedding.astype("float64").tobytes(),
-                    now,
-                ],
-            )
-        faiss_index.add_with_ids(
-            np.vstack(embeddings),
-            ids,
-        )
-        processed += len(batch)
-        inserted += len([b for b in batch if b["reason"] == "missing"])
-        refreshed += len([b for b in batch if b["reason"] == "stale"])
-        batch = []
-        commit_updates(calibregpt_db, faiss_index, faiss_index_fp)
+        if len(batch) >= batch_size:
+            break
 
     if len(batch) > 0:
         embeddings = fetch_embeddings_for_model([b["text"] for b in batch], token, embedding_model)
-        ids = np.array([b["id"] for b in batch], dtype="int64")
-        faiss_index.remove_ids(faiss.IDSelectorBatch(ids))
-        cursor = calibregpt_db.cursor()
-        now = int(time.time())
-        for record, embedding in zip(batch, embeddings):
-            cursor.execute(
-                """
-                    insert or replace into chunk_embeddings
-                    (id_chunk, model, text_hash, embedding, updated_at)
-                    values (?, ?, ?, ?, ?)
-                """,
-                [
-                    record["id"],
-                    embedding_model,
-                    record["text_hash"],
-                    embedding.astype("float64").tobytes(),
-                    now,
-                ],
-            )
-        faiss_index.add_with_ids(
-            np.vstack(embeddings),
-            ids,
+        persist_model_embeddings_batch(
+            calibregpt_db,
+            faiss_index,
+            faiss_index_fp,
+            embedding_model,
+            batch,
+            embeddings,
         )
         processed += len(batch)
         inserted += len([b for b in batch if b["reason"] == "missing"])
         refreshed += len([b for b in batch if b["reason"] == "stale"])
-        commit_updates(calibregpt_db, faiss_index, faiss_index_fp)
 
-    cursor = calibregpt_db.cursor()
-    cursor.execute(
-        """
-            select count(*) from book_chunks bc
-            left join chunk_embeddings ce
-              on ce.id_chunk = bc.id and ce.model = ?
-            where ce.id_chunk is null
-        """,
-        [embedding_model],
-    )
-    remaining = cursor.fetchone()[0]
+    missing, stale = count_stale_or_missing(calibregpt_db, embedding_model)
+    remaining = missing + stale
     return {
         "embedding_model": embedding_model,
         "processed": processed,
@@ -627,15 +606,9 @@ def migration_status(calibregpt_db, embedding_model):
     cursor.execute("select count(*) from book_chunks")
     total_chunks = cursor.fetchone()[0]
 
-    missing = 0
-    stale = 0
-    up_to_date = 0
-    for item in stale_or_missing_chunk_embeddings_iter(calibregpt_db, embedding_model):
-        if item["reason"] == "missing":
-            missing += 1
-        elif item["reason"] == "stale":
-            stale += 1
+    missing, stale = count_stale_or_missing(calibregpt_db, embedding_model)
 
+    up_to_date = 0
     up_to_date = total_chunks - missing - stale
     if up_to_date < 0:
         up_to_date = 0
@@ -660,7 +633,7 @@ def run_query(opts):
         return find_unindexed(metadata_db, fp_fulltext_db)
 
     fulltext_db = open_db(fp_fulltext_db, False)
-    openai_token = opts.openai_token
+    openai_token = opts.openai_token or os.environ.get("OPENAI_TOKEN")
     fp_calibregpt_db = opts.calibregpt_db
     embedding_model = query_embedding_model(opts)
     embedding_dimensions(embedding_model)
@@ -680,7 +653,8 @@ def run_query(opts):
         else:
             opts.state = json.loads(opts.state)
 
-    if opts.command != "generate-response" or opts.state is None:
+    should_sync_default_index = opts.command in ("find-similar-chunks", "generate-response")
+    if should_sync_default_index and (opts.command != "generate-response" or opts.state is None):
         default_faiss_index = open_faiss_index(
             fp_default_faiss_index,
             embedding_dimensions(DEFAULT_EMBEDDING_MODEL),
@@ -704,6 +678,8 @@ def run_query(opts):
     if opts.command == "migration-status":
         result = migration_status(calibregpt_db, embedding_model)
     elif opts.command == "migrate-embeddings":
+        if not openai_token:
+            raise ValueError("OpenAI token is required for migrate-embeddings.")
         if not opts.embedding_model:
             raise ValueError("Use --embedding-model with a non-default model for migrate-embeddings.")
         if opts.embedding_model == DEFAULT_EMBEDDING_MODEL:

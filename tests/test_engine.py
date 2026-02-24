@@ -193,6 +193,39 @@ class TestMultiModelEmbeddings(unittest.TestCase):
             self.assertEqual(stats["remaining"], 2)
             self.assertEqual(stats["up_to_date"], 0)
 
+    def test_migrate_embeddings_processes_single_batch_per_call(self):
+        with tempfile.TemporaryDirectory() as td:
+            db = open_db(f"{td}/calibregpt.db", auto_create=True, wal=False)
+            setup_calibregpt_db(db)
+            cursor = db.cursor()
+            cursor.execute(
+                "insert into books (id, author, title, timestamp) values (1, 'a', 't', 1)"
+            )
+            cursor.execute(
+                "insert into book_chunks (id, id_book, sequence, text, embedding) values (100, 1, 0, 'Chunk one', null)"
+            )
+            cursor.execute(
+                "insert into book_chunks (id, id_book, sequence, text, embedding) values (101, 1, 1, 'Chunk two', null)"
+            )
+            db.commit()
+
+            faiss_index = faiss.IndexIDMap(faiss.IndexFlatL2(3))
+            faiss_fp = f"{td}/alt.idx"
+            with patch(
+                "engine.fetch_embeddings_for_model",
+                return_value=[np.array([0.1, 0.2, 0.3], dtype="float64")],
+            ):
+                stats = migrate_embeddings(
+                    batch_size=1,
+                    calibregpt_db=db,
+                    faiss_index=faiss_index,
+                    faiss_index_fp=faiss_fp,
+                    token="test-token",
+                    embedding_model="text-embedding-3-small",
+                )
+            self.assertEqual(stats["processed"], 1)
+            self.assertEqual(stats["remaining"], 1)
+
 
 class TestModelSelection(unittest.TestCase):
     def test_query_embedding_model_prefers_explicit_model(self):
