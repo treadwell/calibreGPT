@@ -133,10 +133,32 @@ def render_page(
       {''.join(rows)}
     </tbody>
   </table>
+  <p id="status" style="margin-top:10px;color:#444"></p>
   <script>
-    function setDrag(ev, fileUrl, filePath) {{
+    function showStatus(message) {{
+      var el = document.getElementById('status');
+      if (el) {{
+        el.textContent = message;
+      }}
+    }}
+    function openFile(url) {{
+      fetch(url)
+        .then(function(res) {{
+          if (res.ok) {{
+            showStatus('Opened file in default app.');
+          }} else {{
+            showStatus('Open failed (' + res.status + ').');
+          }}
+        }})
+        .catch(function(err) {{
+          showStatus('Open failed: ' + err);
+        }});
+    }}
+    function setDrag(ev, fileUrl, filePath, fileName) {{
+      ev.dataTransfer.setData('DownloadURL', 'application/octet-stream:' + fileName + ':' + fileUrl);
       ev.dataTransfer.setData('text/uri-list', fileUrl);
       ev.dataTransfer.setData('text/plain', filePath);
+      showStatus('Dragging: ' + fileName);
     }}
   </script>
 </body>
@@ -171,8 +193,7 @@ def make_handler(engine_path: str, libraries: List[str], active_model: str, batc
                     return
                 target = mapping[book_id]["path"]
                 subprocess.Popen(["open", target])
-                self.send_response(303)
-                self.send_header("Location", "/")
+                self.send_response(204)
                 self.end_headers()
                 return
             if parsed.path != "/":
@@ -241,6 +262,7 @@ def make_handler(engine_path: str, libraries: List[str], active_model: str, batc
                             row["actions_html"] = ""
                             continue
                         abs_path = file_info["path"]
+                        file_name = os.path.basename(abs_path)
                         file_url = "file://" + urllib.parse.quote(abs_path)
                         open_url = (
                             "/open?library="
@@ -249,10 +271,10 @@ def make_handler(engine_path: str, libraries: List[str], active_model: str, batc
                             + str(row["book_id"])
                         )
                         row["actions_html"] = (
-                            f'<a href="{open_url}">Open</a> '
+                            f'<button type="button" onclick="openFile({json.dumps(open_url)})">Open</button> '
                             f'| <a href="{file_url}">File Link</a> '
-                            f'| <span draggable="true" ondragstart="setDrag(event, {json.dumps(file_url)}, {json.dumps(abs_path)})" '
-                            f'style="cursor:grab;text-decoration:underline">Drag File</span>'
+                            f'| <span draggable="true" ondragstart="setDrag(event, {json.dumps(file_url)}, {json.dumps(abs_path)}, {json.dumps(file_name)})" '
+                            f'style="cursor:grab;text-decoration:underline;font-weight:600">Drag File</span>'
                         )
                     if use_elbow:
                         rows = apply_elbow_cutoff(rows)
