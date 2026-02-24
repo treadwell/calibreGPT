@@ -231,6 +231,7 @@ def render_dashboard(snapshot: Dict[str, Dict], embedding_model: str, active_mod
 <body>
   <h2>Calibre Embedding Migration Dashboard</h2>
   <p>embedding_model=<code>{html.escape(embedding_model)}</code> active_model=<code>{html.escape(active_model)}</code> batch_size=<code>{batch_size}</code></p>
+  <p>Auto-refresh: every 60 seconds.</p>
   <p>Set <code>OPENAI_TOKEN</code> in shell before starting this dashboard for migrate actions.</p>
   <table>
     <thead>
@@ -242,6 +243,11 @@ def render_dashboard(snapshot: Dict[str, Dict], embedding_model: str, active_mod
       {''.join(rows)}
     </tbody>
   </table>
+  <script>
+    setTimeout(function () {{
+      window.location.reload();
+    }}, 60000);
+  </script>
 </body>
 </html>"""
 
