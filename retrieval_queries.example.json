@@ -1,29 +1,62 @@
 [
   {
     "id": "q1",
-    "query": "books about tai chi and movement practice",
-    "expected_book_ids": [
-      217,
-      261,
-      119
-    ]
+    "query": "CS6460 milestone 1 reports and project progress summaries",
+    "expected_book_ids": []
   },
   {
     "id": "q2",
-    "query": "guides for prompt engineering and llm workflows",
-    "expected_book_ids": [
-      194,
-      247,
-      93
-    ]
+    "query": "CS6460 milestone 2 deliverables and iteration updates",
+    "expected_book_ids": []
   },
   {
     "id": "q3",
-    "query": "travel books for italy with local context",
-    "expected_book_ids": [
-      259,
-      75,
-      96
-    ]
+    "query": "CS6460 project proposal documents across all versions",
+    "expected_book_ids": []
+  },
+  {
+    "id": "q4",
+    "query": "CS6460 qualifier questions and exam preparation material",
+    "expected_book_ids": []
+  },
+  {
+    "id": "q5",
+    "query": "CS6460 assignment 1 writeups and revisions",
+    "expected_book_ids": []
+  },
+  {
+    "id": "q6",
+    "query": "CS6460 assignment 2 implementation and analysis",
+    "expected_book_ids": []
+  },
+  {
+    "id": "q7",
+    "query": "CS6460 assignment 3 final submissions and updates",
+    "expected_book_ids": []
+  },
+  {
+    "id": "q8",
+    "query": "CS6460 final paper documents",
+    "expected_book_ids": []
+  },
+  {
+    "id": "q9",
+    "query": "CS6460 final presentation slides",
+    "expected_book_ids": []
+  },
+  {
+    "id": "q10",
+    "query": "personal AI tutor case study and learning principles",
+    "expected_book_ids": []
+  },
+  {
+    "id": "q11",
+    "query": "documents by Randazzo for CS6460 project work",
+    "expected_book_ids": []
+  },
+  {
+    "id": "q12",
+    "query": "documents by Saroop for CS6460 milestones and proposals",
+    "expected_book_ids": []
   }
 ]
