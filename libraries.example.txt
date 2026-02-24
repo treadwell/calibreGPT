@@ -2,3 +2,4 @@
 # Lines starting with # are ignored.
 /Users/kbrooks/Dropbox/Books/Yoga Calibre Library
 /Users/kbrooks/Dropbox/Books/Calibre Travel Library
+/Users/kbrooks/Dropbox/Books/calibreGPT_test_lg
