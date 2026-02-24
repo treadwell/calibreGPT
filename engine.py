@@ -12,9 +12,16 @@ import math
 import time
 import random
 import re
+import hashlib
 
 DEBUG = False
 DEBUG_FILE = None
+DEFAULT_EMBEDDING_MODEL = "text-embedding-ada-002"
+EMBEDDING_DIMS = {
+    "text-embedding-ada-002": 1536,
+    "text-embedding-3-small": 1536,
+    "text-embedding-3-large": 3072,
+}
 
 def debug(*args):
     if DEBUG:
@@ -33,6 +40,33 @@ def open_db(fp, auto_create = True, wal = False):
  
 def close_db(db):
     db.close()
+
+
+def sanitize_chunk_text(text):
+    return re.sub("[^\w\s]", "", text)
+
+
+def chunk_text_hash(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def model_to_suffix(model):
+    return re.sub(r"[^a-z0-9]+", "-", model.lower()).strip("-")
+
+
+def get_faiss_index_path(base_path, embedding_model):
+    if embedding_model == DEFAULT_EMBEDDING_MODEL:
+        return base_path
+    root, ext = os.path.splitext(base_path)
+    if ext:
+        return f"{root}.{model_to_suffix(embedding_model)}{ext}"
+    return f"{base_path}.{model_to_suffix(embedding_model)}"
+
+
+def embedding_dimensions(embedding_model):
+    if embedding_model not in EMBEDDING_DIMS:
+        raise ValueError(f"Unsupported embedding model: {embedding_model}")
+    return EMBEDDING_DIMS[embedding_model]
 
 class FullTextTimestampsIter():
     def __init__(self, fulltext_db, metadata_db):
@@ -165,7 +199,7 @@ def exp_backoff(fn, args=(), initial_wait=5.0, max_wait=32.0, backoff_factor=2.0
             time.sleep(final_wait_time)
             wait_time = min(final_wait_time * backoff_factor, max_wait)
 
-def fetch_embeddings_nobackoff(chunks, token):
+def fetch_embeddings_nobackoff(chunks, token, embedding_model):
     for chunk in chunks:
         debug("fetch embedding: ", chunk[:50].replace('\n', ' ').replace('\r', ''))
     ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -173,7 +207,7 @@ def fetch_embeddings_nobackoff(chunks, token):
     connection = http.client.HTTPSConnection("api.openai.com", context=ssl_ctx)
     connection.request("POST", "/v1/embeddings", json.dumps({ 
         "input": chunks, 
-        "model": "text-embedding-ada-002"
+        "model": embedding_model
     }), {
         "Content-Type": "application/json",
         "Authorization": "Bearer " + token
@@ -191,10 +225,19 @@ def fetch_embeddings_nobackoff(chunks, token):
 
 def fetch_embeddings(chunks, token):
     chunks = list(chunks)
-    return exp_backoff(fetch_embeddings_nobackoff, (chunks, token))
+    return exp_backoff(fetch_embeddings_nobackoff, (chunks, token, DEFAULT_EMBEDDING_MODEL))
+
+
+def fetch_embeddings_for_model(chunks, token, embedding_model):
+    chunks = list(chunks)
+    return exp_backoff(fetch_embeddings_nobackoff, (chunks, token, embedding_model))
 
 def fetch_embedding(chunk, token):
     return fetch_embeddings([chunk], token)[0]
+
+
+def fetch_embedding_for_model(chunk, token, embedding_model):
+    return fetch_embeddings_for_model([chunk], token, embedding_model)[0]
 
 def fetch_missing_embeddings_(chunks, calibregpt_db, faiss_index, token):
     embeddings = fetch_embeddings(map(lambda x: x["text"], chunks), token)
@@ -206,7 +249,7 @@ def fetch_missing_embeddings_(chunks, calibregpt_db, faiss_index, token):
 def fetch_missing_embeddings(batch_size, calibregpt_db, faiss_index, token):
     chunks = []
     for mc in MissingChunksIterator(calibregpt_db):
-        mc["text"] = re.sub("[^\w\s]", "", mc["text"])
+        mc["text"] = sanitize_chunk_text(mc["text"])
         if len(mc["text"]) > 0:
             chunks.append(mc)
         if len(chunks) >= batch_size:
@@ -249,7 +292,8 @@ def generate_response(openai_token, prompt, state):
 
 def commit_updates(calibregpt_db, faiss_index, faiss_index_fp):
     calibregpt_db.commit()
-    persist_faiss_index(faiss_index, faiss_index_fp)
+    if faiss_index_fp is not None:
+        persist_faiss_index(faiss_index, faiss_index_fp)
 
 def update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, faiss_index_fp, updates, token, batch_size, chunk_size, overlap_percent):
     debug("starting update_indices")
@@ -318,6 +362,19 @@ def setup_calibregpt_db(calibregpt_db):
     cursor.execute("""
         create index if not exists book_chunks_embedding_exists on book_chunks(embedding) where embedding is null;
     """)
+    cursor.execute("""
+        create table if not exists chunk_embeddings (
+            id_chunk integer not null references book_chunks(id),
+            model text not null,
+            text_hash text not null,
+            embedding blob not null,
+            updated_at integer not null,
+            primary key (id_chunk, model)
+        );
+    """)
+    cursor.execute("""
+        create index if not exists chunk_embeddings_model_id_chunk on chunk_embeddings (model, id_chunk);
+    """)
     calibregpt_db.commit()
 
 def get_calibregpt_timestamp(db, id):
@@ -339,12 +396,12 @@ class CalibreGptIdsIter():
         return id
 
 ##### FAISS index handling
-def open_faiss_index(fp):
+def open_faiss_index(fp, dim):
     if os.path.exists(fp):
         return faiss.read_index(fp)
     else:
         # should be IndexFlatIP to leverage dot product speed
-        return faiss.IndexIDMap(faiss.IndexFlatL2(1536))
+        return faiss.IndexIDMap(faiss.IndexFlatL2(dim))
 
 def persist_faiss_index(faiss_index, fp):
     debug("Persist faiss index start")
@@ -379,18 +436,31 @@ def search_faiss_index(faiss_index, prompt_embedding, calibregpt_db, match_count
 class NoFulltextDataError(Exception):
     pass
 
-def merge_book_embeddings(ids, db):
-    arrays = list(map(lambda c: np.frombuffer(c, dtype = "float64"), 
-                 BookChunksEmbeddingsIter(ids, db)))
+def merge_book_embeddings(ids, db, embedding_model):
+    arrays = []
+    if embedding_model == DEFAULT_EMBEDDING_MODEL:
+        arrays = list(map(lambda c: np.frombuffer(c, dtype = "float64"),
+                     BookChunksEmbeddingsIter(ids, db)))
+    else:
+        cursor = db.cursor()
+        cursor.execute(
+            f"""
+                select ce.embedding from chunk_embeddings ce
+                join book_chunks bc on bc.id = ce.id_chunk
+                where ce.model = ? and bc.id_book in ({','.join(['?' for _ in ids])})
+            """,
+            [embedding_model] + list(map(int, ids)),
+        )
+        arrays = [np.frombuffer(row[0], dtype="float64") for row in cursor.fetchall()]
     if len(arrays) == 0:
         raise NoFulltextDataError()
     return np.mean(np.vstack(arrays), axis = 0)
 
 def get_prompt(opts, calibregpt_db):
     if opts.prompt:
-        return fetch_embedding(opts.prompt, opts.openai_token)
+        return fetch_embedding_for_model(opts.prompt, opts.openai_token, opts.embedding_model)
     elif opts.ids:
-        return merge_book_embeddings(opts.ids.split(","), calibregpt_db)
+        return merge_book_embeddings(opts.ids.split(","), calibregpt_db, opts.embedding_model)
     else:
         raise ValueError('Neither prompt nor ids provided.')
 
@@ -405,6 +475,134 @@ def find_unindexed(metadata_db, fp_fulltext_db):
     ids = [d[0] for d in cursor.fetchall()]
     return ids
 
+
+def cleanup_orphan_chunk_embeddings(calibregpt_db, embedding_model):
+    cursor = calibregpt_db.cursor()
+    cursor.execute(
+        """
+            delete from chunk_embeddings
+            where model = ?
+              and id_chunk not in (select id from book_chunks)
+        """,
+        [embedding_model],
+    )
+    return cursor.rowcount
+
+
+def missing_chunk_embeddings_iter(calibregpt_db, embedding_model):
+    cursor = calibregpt_db.cursor()
+    cursor.execute(
+        """
+            select bc.id, bc.text
+            from book_chunks bc
+            left join chunk_embeddings ce
+              on ce.id_chunk = bc.id and ce.model = ?
+            where ce.id_chunk is null
+            order by bc.id
+        """,
+        [embedding_model],
+    )
+    while True:
+        row = cursor.fetchone()
+        if not row:
+            return
+        yield {"id": row[0], "text": row[1]}
+
+
+def migrate_embeddings(batch_size, calibregpt_db, faiss_index, faiss_index_fp, token, embedding_model):
+    if embedding_model == DEFAULT_EMBEDDING_MODEL:
+        raise ValueError("migrate-embeddings expects a non-default target model")
+
+    removed_orphans = cleanup_orphan_chunk_embeddings(calibregpt_db, embedding_model)
+    processed = 0
+    inserted = 0
+    batch = []
+
+    for chunk in missing_chunk_embeddings_iter(calibregpt_db, embedding_model):
+        clean_text = sanitize_chunk_text(chunk["text"])
+        if len(clean_text) == 0:
+            continue
+        batch.append({
+            "id": chunk["id"],
+            "text": clean_text,
+            "text_hash": chunk_text_hash(clean_text),
+        })
+        if len(batch) < batch_size:
+            continue
+
+        embeddings = fetch_embeddings_for_model([b["text"] for b in batch], token, embedding_model)
+        cursor = calibregpt_db.cursor()
+        now = int(time.time())
+        for record, embedding in zip(batch, embeddings):
+            cursor.execute(
+                """
+                    insert or replace into chunk_embeddings
+                    (id_chunk, model, text_hash, embedding, updated_at)
+                    values (?, ?, ?, ?, ?)
+                """,
+                [
+                    record["id"],
+                    embedding_model,
+                    record["text_hash"],
+                    embedding.astype("float64").tobytes(),
+                    now,
+                ],
+            )
+        faiss_index.add_with_ids(
+            np.vstack(embeddings),
+            np.array([b["id"] for b in batch]),
+        )
+        processed += len(batch)
+        inserted += len(batch)
+        batch = []
+        commit_updates(calibregpt_db, faiss_index, faiss_index_fp)
+
+    if len(batch) > 0:
+        embeddings = fetch_embeddings_for_model([b["text"] for b in batch], token, embedding_model)
+        cursor = calibregpt_db.cursor()
+        now = int(time.time())
+        for record, embedding in zip(batch, embeddings):
+            cursor.execute(
+                """
+                    insert or replace into chunk_embeddings
+                    (id_chunk, model, text_hash, embedding, updated_at)
+                    values (?, ?, ?, ?, ?)
+                """,
+                [
+                    record["id"],
+                    embedding_model,
+                    record["text_hash"],
+                    embedding.astype("float64").tobytes(),
+                    now,
+                ],
+            )
+        faiss_index.add_with_ids(
+            np.vstack(embeddings),
+            np.array([b["id"] for b in batch]),
+        )
+        processed += len(batch)
+        inserted += len(batch)
+        commit_updates(calibregpt_db, faiss_index, faiss_index_fp)
+
+    cursor = calibregpt_db.cursor()
+    cursor.execute(
+        """
+            select count(*) from book_chunks bc
+            left join chunk_embeddings ce
+              on ce.id_chunk = bc.id and ce.model = ?
+            where ce.id_chunk is null
+        """,
+        [embedding_model],
+    )
+    remaining = cursor.fetchone()[0]
+    return {
+        "embedding_model": embedding_model,
+        "processed": processed,
+        "inserted": inserted,
+        "remaining": remaining,
+        "removed_orphans": removed_orphans,
+    }
+
 def run_query(opts):
 
     fp_fulltext_db = opts.fulltext_db
@@ -417,7 +615,9 @@ def run_query(opts):
     fulltext_db = open_db(fp_fulltext_db, False)
     openai_token = opts.openai_token
     fp_calibregpt_db = opts.calibregpt_db
-    fp_faiss_index = opts.faiss_index
+    embedding_model = opts.embedding_model
+    fp_faiss_index = get_faiss_index_path(opts.faiss_index, embedding_model)
+    fp_default_faiss_index = get_faiss_index_path(opts.faiss_index, DEFAULT_EMBEDDING_MODEL)
     match_count = int(opts.match_count)
     batch_size = int(opts.batch_size)
     chunk_size = int(opts.chunk_size)
@@ -425,7 +625,6 @@ def run_query(opts):
 
     calibregpt_db = open_db(fp_calibregpt_db, True, True)
     setup_calibregpt_db(calibregpt_db)
-    faiss_index = open_faiss_index(fp_faiss_index)
 
     if hasattr(opts, "state"):
         if opts.state is None or opts.state == "":
@@ -434,15 +633,44 @@ def run_query(opts):
             opts.state = json.loads(opts.state)
 
     if opts.command != "generate-response" or opts.state is None:
+        default_faiss_index = open_faiss_index(
+            fp_default_faiss_index,
+            embedding_dimensions(DEFAULT_EMBEDDING_MODEL),
+        )
         updates = CalibreUpdatesIter(fulltext_db, calibregpt_db, metadata_db)
-        update_indices(fulltext_db, metadata_db, calibregpt_db, faiss_index, fp_faiss_index, updates, openai_token, batch_size, chunk_size, overlap_percent)
+        update_indices(
+            fulltext_db,
+            metadata_db,
+            calibregpt_db,
+            default_faiss_index,
+            fp_default_faiss_index,
+            updates,
+            openai_token,
+            batch_size,
+            chunk_size,
+            overlap_percent,
+        )
 
     result = None
 
-    if opts.command == "find-similar-chunks":
+    if opts.command == "migrate-embeddings":
+        if embedding_model == DEFAULT_EMBEDDING_MODEL:
+            raise ValueError("Use --embedding-model with a non-default model for migrate-embeddings.")
+        target_faiss_index = open_faiss_index(fp_faiss_index, embedding_dimensions(embedding_model))
+        result = migrate_embeddings(
+            batch_size,
+            calibregpt_db,
+            target_faiss_index,
+            fp_faiss_index,
+            openai_token,
+            embedding_model,
+        )
+    elif opts.command == "find-similar-chunks":
+        faiss_index = open_faiss_index(fp_faiss_index, embedding_dimensions(embedding_model))
         prompt_embedding = get_prompt(opts, calibregpt_db)
         result = search_faiss_index(faiss_index, prompt_embedding, calibregpt_db, match_count)
     elif opts.command == "generate-response":
+        faiss_index = open_faiss_index(fp_faiss_index, embedding_dimensions(embedding_model))
         if opts.state is None:
             prompt_embedding = get_prompt(opts, calibregpt_db)
             ranking = search_faiss_index(faiss_index, prompt_embedding, calibregpt_db, match_count)
@@ -465,6 +693,7 @@ if __name__ == "__main__":
     parser.add_argument('--metadata-db')
     parser.add_argument('--calibregpt-db')
     parser.add_argument('--faiss-index')
+    parser.add_argument('--embedding-model', default = DEFAULT_EMBEDDING_MODEL)
     parser.add_argument('--chunk-size', default = 4096)
     parser.add_argument('--overlap-percent', default = 0.2)
     parser.add_argument('--match-count', default = 30)
@@ -478,6 +707,7 @@ if __name__ == "__main__":
     cmd_generate_response = subparsers.add_parser("generate-response")
     cmd_generate_response.add_argument('--prompt')
     cmd_generate_response.add_argument('--state')
+    subparsers.add_parser("migrate-embeddings")
     subparsers.add_parser("find-unindexed")
     
     args = parser.parse_args()
@@ -492,3 +722,5 @@ if __name__ == "__main__":
         print(json.dumps({ "results": run_query(args) }))
     except NoFulltextDataError:
         print(json.dumps({ "error": "No full text data for selected books." }))
+    except ValueError as e:
+        print(json.dumps({ "error": str(e) }))

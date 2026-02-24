@@ -1,7 +1,18 @@
 import sqlite3
+import tempfile
 import unittest
+from unittest.mock import patch
 
-from engine import BookChunksIter
+import faiss
+import numpy as np
+
+from engine import (
+    BookChunksIter,
+    get_faiss_index_path,
+    migrate_embeddings,
+    open_db,
+    setup_calibregpt_db,
+)
 
 
 def _make_fulltext_db(text):
@@ -32,6 +43,55 @@ class TestBookChunksIter(unittest.TestCase):
         db = _make_fulltext_db("abc")
         with self.assertRaises(ValueError):
             list(BookChunksIter(1, db, chunk_size=10, overlap_percent=0.5))
+
+
+class TestMultiModelEmbeddings(unittest.TestCase):
+    def test_get_faiss_index_path_uses_model_suffix(self):
+        base = "/tmp/faiss.idx"
+        self.assertEqual(get_faiss_index_path(base, "text-embedding-ada-002"), base)
+        self.assertEqual(
+            get_faiss_index_path(base, "text-embedding-3-small"),
+            "/tmp/faiss.text-embedding-3-small.idx",
+        )
+
+    def test_migrate_embeddings_populates_chunk_embeddings_and_index(self):
+        with tempfile.TemporaryDirectory() as td:
+            db = open_db(f"{td}/calibregpt.db", auto_create=True, wal=False)
+            setup_calibregpt_db(db)
+            cursor = db.cursor()
+            cursor.execute(
+                "insert into books (id, author, title, timestamp) values (1, 'a', 't', 1)"
+            )
+            cursor.execute(
+                "insert into book_chunks (id, id_book, sequence, text, embedding) values (100, 1, 0, 'Hello world', null)"
+            )
+            db.commit()
+
+            faiss_index = faiss.IndexIDMap(faiss.IndexFlatL2(3))
+            faiss_fp = f"{td}/alt.idx"
+
+            with patch(
+                "engine.fetch_embeddings_for_model",
+                return_value=[np.array([0.1, 0.2, 0.3], dtype="float64")],
+            ):
+                stats = migrate_embeddings(
+                    batch_size=10,
+                    calibregpt_db=db,
+                    faiss_index=faiss_index,
+                    faiss_index_fp=faiss_fp,
+                    token="test-token",
+                    embedding_model="text-embedding-3-small",
+                )
+
+            self.assertEqual(stats["processed"], 1)
+            self.assertEqual(stats["remaining"], 0)
+
+            row = db.cursor().execute(
+                "select model, text_hash, embedding from chunk_embeddings where id_chunk = 100"
+            ).fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row[0], "text-embedding-3-small")
+            self.assertEqual(len(np.frombuffer(row[2], dtype="float64")), 3)
 
 
 if __name__ == "__main__":
