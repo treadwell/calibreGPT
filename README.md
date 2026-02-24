@@ -62,6 +62,7 @@ The project consists of several key components:
 - `migrate_multi_library.py`: Round-robin migration runner for many libraries
 - `migration_dashboard.py`: Local migration dashboard UI (status/start/pause/run-once)
 - `retrieval_validation.py`: Model-vs-model retrieval quality comparison on a query set
+- `query_dashboard.py`: Query input UI that returns matching titles/book ids
 
 ### Multi-library Migration
 
@@ -91,6 +92,21 @@ python3 migration_dashboard.py \
   --embedding-model text-embedding-3-small \
   --batch-size 64
 ```
+
+Start query UI:
+
+```bash
+python3 query_dashboard.py \
+  --libraries-file libraries.example.txt \
+  --port 8770
+```
+
+The query UI supports:
+- library selection
+- embedding model selection
+- top-k retrieval control
+- grouped title results with `book_id`, chunk-hit count, and Calibre filter snippets
+- optional elbow cutoff to show likely matches
 
 ### Retrieval Validation Harness
 

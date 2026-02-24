@@ -29,6 +29,7 @@ def _run_engine(
     active_model: str,
     batch_size: int,
     command: str,
+    extra_args: List[str] = None,
 ) -> Dict:
     paths = library_db_paths(library_path)
     args = [
@@ -50,6 +51,8 @@ def _run_engine(
         str(batch_size),
         command,
     ]
+    if extra_args:
+        args.extend(extra_args)
     proc = subprocess.run(args, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or f"engine exited {proc.returncode}")
@@ -83,6 +86,31 @@ def migrate_once(
     if not token:
         raise RuntimeError("OPENAI_TOKEN is required for migration runs.")
     return _run_engine(engine_path, library_path, embedding_model, active_model, batch_size, "migrate-embeddings")
+
+
+def search_similar_chunks(
+    engine_path: str,
+    library_path: str,
+    embedding_model: str,
+    active_model: str,
+    batch_size: int,
+    query: str,
+    match_count: int,
+    skip_sync: bool = True,
+) -> List[Dict]:
+    extra_args = ["--match-count", str(match_count)]
+    if skip_sync:
+        extra_args.append("--skip-sync")
+    extra_args.extend(["--prompt", query])
+    return _run_engine(
+        engine_path,
+        library_path,
+        embedding_model,
+        active_model,
+        batch_size,
+        "find-similar-chunks",
+        extra_args=extra_args,
+    )
 
 
 def load_libraries(libraries_file: str, explicit: List[str]) -> List[str]:
