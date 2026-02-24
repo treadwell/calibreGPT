@@ -2,14 +2,16 @@
 
 import argparse
 import html
+import json
 import os
+import subprocess
 import statistics
 import urllib.parse
 from collections import defaultdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, List
 
-from migration_utils import load_libraries, search_similar_chunks
+from migration_utils import load_libraries, resolve_book_open_paths, search_similar_chunks
 
 
 def aggregate_results(results: List[Dict]) -> List[Dict]:
@@ -81,6 +83,7 @@ def render_page(
               <td>{row['chunk_hits']}</td>
               <td>{row['best_distance']:.4f}</td>
               <td><code>{html.escape(calibre_filter)}</code></td>
+              <td>{row.get('actions_html', '')}</td>
               <td><code>{html.escape(row['sample_excerpt'])}</code></td>
             </tr>
             """
@@ -124,12 +127,18 @@ def render_page(
   {error_html}
   <table>
     <thead>
-      <tr><th>Book ID</th><th>Title</th><th>Author</th><th>Chunk Hits</th><th>Best Distance</th><th>Calibre Filter</th><th>Excerpt</th></tr>
+      <tr><th>Book ID</th><th>Title</th><th>Author</th><th>Chunk Hits</th><th>Best Distance</th><th>Calibre Filter</th><th>Actions</th><th>Excerpt</th></tr>
     </thead>
     <tbody>
       {''.join(rows)}
     </tbody>
   </table>
+  <script>
+    function setDrag(ev, fileUrl, filePath) {{
+      ev.dataTransfer.setData('text/uri-list', fileUrl);
+      ev.dataTransfer.setData('text/plain', filePath);
+    }}
+  </script>
 </body>
 </html>"""
 
@@ -137,7 +146,36 @@ def render_page(
 def make_handler(engine_path: str, libraries: List[str], active_model: str, batch_size: int):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path != "/":
+            parsed = urllib.parse.urlparse(self.path)
+            if parsed.path == "/open":
+                params = urllib.parse.parse_qs(parsed.query)
+                library = params.get("library", [""])[0]
+                book_id_raw = params.get("book_id", [""])[0]
+                if library not in libraries:
+                    self.send_response(400)
+                    self.end_headers()
+                    self.wfile.write(b"Invalid library")
+                    return
+                try:
+                    book_id = int(book_id_raw)
+                except ValueError:
+                    self.send_response(400)
+                    self.end_headers()
+                    self.wfile.write(b"Invalid book_id")
+                    return
+                mapping = resolve_book_open_paths(library, [book_id])
+                if book_id not in mapping:
+                    self.send_response(404)
+                    self.end_headers()
+                    self.wfile.write(b"No file found for book")
+                    return
+                target = mapping[book_id]["path"]
+                subprocess.Popen(["open", target])
+                self.send_response(303)
+                self.send_header("Location", "/")
+                self.end_headers()
+                return
+            if parsed.path != "/":
                 self.send_response(404)
                 self.end_headers()
                 return
@@ -196,6 +234,26 @@ def make_handler(engine_path: str, libraries: List[str], active_model: str, batc
                         skip_sync=True,
                     )
                     rows = aggregate_results(raw_results)
+                    book_map = resolve_book_open_paths(selected_library, [r["book_id"] for r in rows])
+                    for row in rows:
+                        file_info = book_map.get(int(row["book_id"]))
+                        if not file_info:
+                            row["actions_html"] = ""
+                            continue
+                        abs_path = file_info["path"]
+                        file_url = "file://" + urllib.parse.quote(abs_path)
+                        open_url = (
+                            "/open?library="
+                            + urllib.parse.quote(selected_library, safe="")
+                            + "&book_id="
+                            + str(row["book_id"])
+                        )
+                        row["actions_html"] = (
+                            f'<a href="{open_url}">Open</a> '
+                            f'| <a href="{file_url}">File Link</a> '
+                            f'| <span draggable="true" ondragstart="setDrag(event, {json.dumps(file_url)}, {json.dumps(abs_path)})" '
+                            f'style="cursor:grab;text-decoration:underline">Drag File</span>'
+                        )
                     if use_elbow:
                         rows = apply_elbow_cutoff(rows)
                 except Exception as exc:

@@ -2,6 +2,7 @@
 
 import json
 import os
+import sqlite3
 import subprocess
 from typing import Dict, List
 
@@ -29,7 +30,8 @@ def _run_engine(
     active_model: str,
     batch_size: int,
     command: str,
-    extra_args: List[str] = None,
+    global_args: List[str] = None,
+    command_args: List[str] = None,
 ) -> Dict:
     paths = library_db_paths(library_path)
     args = [
@@ -49,10 +51,12 @@ def _run_engine(
         embedding_model,
         "--batch-size",
         str(batch_size),
-        command,
     ]
-    if extra_args:
-        args.extend(extra_args)
+    if global_args:
+        args.extend(global_args)
+    args.append(command)
+    if command_args:
+        args.extend(command_args)
     proc = subprocess.run(args, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or f"engine exited {proc.returncode}")
@@ -98,10 +102,10 @@ def search_similar_chunks(
     match_count: int,
     skip_sync: bool = True,
 ) -> List[Dict]:
-    extra_args = ["--match-count", str(match_count)]
+    global_args = ["--match-count", str(match_count)]
     if skip_sync:
-        extra_args.append("--skip-sync")
-    extra_args.extend(["--prompt", query])
+        global_args.append("--skip-sync")
+    command_args = ["--prompt", query]
     return _run_engine(
         engine_path,
         library_path,
@@ -109,7 +113,8 @@ def search_similar_chunks(
         active_model,
         batch_size,
         "find-similar-chunks",
-        extra_args=extra_args,
+        global_args=global_args,
+        command_args=command_args,
     )
 
 
@@ -138,3 +143,48 @@ def load_libraries(libraries_file: str, explicit: List[str]) -> List[str]:
     for path in deduped:
         validate_library_path(path)
     return deduped
+
+
+def resolve_book_open_paths(
+    library_path: str,
+    book_ids: List[int],
+    preferred_formats: List[str] = None,
+) -> Dict[int, Dict[str, str]]:
+    if not book_ids:
+        return {}
+    if preferred_formats is None:
+        preferred_formats = ["PDF", "EPUB", "AZW3", "MOBI", "DOCX", "TXT", "RTF", "MD"]
+    rank = {fmt.upper(): i for i, fmt in enumerate(preferred_formats)}
+    metadata_db = os.path.join(library_path, "metadata.db")
+    conn = sqlite3.connect(metadata_db)
+    cursor = conn.cursor()
+    placeholders = ",".join(["?" for _ in book_ids])
+    cursor.execute(
+        f"""
+            select d.book, d.format, d.name, b.path
+            from data d
+            join books b on b.id = d.book
+            where d.book in ({placeholders})
+        """,
+        book_ids,
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    best: Dict[int, Dict[str, str]] = {}
+    for book_id, fmt, name, rel_path in rows:
+        fmt_upper = str(fmt).upper()
+        candidate_path = os.path.join(library_path, rel_path, f"{name}.{str(fmt).lower()}")
+        if not os.path.exists(candidate_path):
+            alt = os.path.join(library_path, rel_path, f"{name}.{fmt}")
+            if os.path.exists(alt):
+                candidate_path = alt
+        score = rank.get(fmt_upper, len(rank) + 1)
+        current = best.get(book_id)
+        if current is None or score < current["score"]:
+            best[book_id] = {
+                "path": candidate_path,
+                "format": fmt_upper,
+                "score": score,
+            }
+    return {k: {"path": v["path"], "format": v["format"]} for k, v in best.items()}

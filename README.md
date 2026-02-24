@@ -107,6 +107,7 @@ The query UI supports:
 - top-k retrieval control
 - grouped title results with `book_id`, chunk-hit count, and Calibre filter snippets
 - optional elbow cutoff to show likely matches
+- per-result actions: `Open`, `File Link`, and draggable `Drag File`
 
 ### Retrieval Validation Harness
 
