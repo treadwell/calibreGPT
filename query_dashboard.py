@@ -306,12 +306,17 @@ def make_handler(engine_path: str, libraries: List[str], active_model: str, batc
                             + str(row["book_id"])
                         )
                         reveal_url = open_url + "&action=reveal"
+                        js_open = html.escape(json.dumps(open_url), quote=True)
+                        js_reveal = html.escape(json.dumps(reveal_url), quote=True)
+                        js_path = html.escape(json.dumps(abs_path), quote=True)
+                        js_file_url = html.escape(json.dumps(file_url), quote=True)
+                        js_file_name = html.escape(json.dumps(file_name), quote=True)
                         row["actions_html"] = (
-                            f'<button type="button" onclick="openFile({json.dumps(open_url)})">Open</button> '
-                            f'<button type="button" onclick="revealFile({json.dumps(reveal_url)})">Reveal</button> '
-                            f'<button type="button" onclick="copyPath({json.dumps(abs_path)})">Copy Path</button> '
+                            f'<button type="button" onclick="openFile({js_open})">Open</button> '
+                            f'<button type="button" onclick="revealFile({js_reveal})">Reveal</button> '
+                            f'<button type="button" onclick="copyPath({js_path})">Copy Path</button> '
                             f'| <a href="{file_url}">File Link</a> '
-                            f'| <span draggable="true" ondragstart="setDrag(event, {json.dumps(file_url)}, {json.dumps(abs_path)}, {json.dumps(file_name)})" '
+                            f'| <span draggable="true" ondragstart="setDrag(event, {js_file_url}, {js_path}, {js_file_name})" '
                             f'style="cursor:grab;text-decoration:underline;font-weight:600">Drag File</span>'
                         )
                     if use_elbow:
