@@ -58,6 +58,38 @@ The project consists of several key components:
 - `engine.py`: Core search and GPT integration logic
 - `test.sh`: Testing script
 - `iterate.sh`: Development watch script for automatic testing
+- `migrate_embeddings.sh`: Single-library resumable embedding migration runner
+- `migrate_multi_library.py`: Round-robin migration runner for many libraries
+- `migration_dashboard.py`: Local migration dashboard UI (status/start/pause/run-once)
+
+### Multi-library Migration
+
+Run status for multiple libraries:
+
+```bash
+python3 migrate_multi_library.py \
+  --libraries-file libraries.example.txt \
+  --status-only
+```
+
+Run one migration cycle per library:
+
+```bash
+python3 migrate_multi_library.py \
+  --libraries-file libraries.example.txt \
+  --embedding-model text-embedding-3-small \
+  --batch-size 64 \
+  --max-cycles 1
+```
+
+Start local dashboard:
+
+```bash
+python3 migration_dashboard.py \
+  --libraries-file libraries.example.txt \
+  --embedding-model text-embedding-3-small \
+  --batch-size 64
+```
 
 ## License
 
