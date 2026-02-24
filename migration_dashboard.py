@@ -13,6 +13,7 @@ from typing import Dict, List
 
 from migration_utils import load_libraries, migrate_once, migration_status
 
+STATE_FILE = ".migration_dashboard_state.json"
 
 @dataclass
 class LibraryState:
@@ -34,6 +35,30 @@ class MigrationDashboard:
         self.sleep_seconds = sleep_seconds
         self.lock = threading.Lock()
         self.states: Dict[str, LibraryState] = {lib: LibraryState(path=lib) for lib in libraries}
+        self._restore_running_state()
+
+    def _save_state(self) -> None:
+        running = []
+        with self.lock:
+            for library_path, state in self.states.items():
+                if state.running:
+                    running.append(library_path)
+        payload = {"running_libraries": running}
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+
+    def _restore_running_state(self) -> None:
+        if not os.path.exists(STATE_FILE):
+            return
+        try:
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            running = set(payload.get("running_libraries", []))
+        except Exception:
+            return
+        for library_path in self.states:
+            if library_path in running:
+                self.start(library_path)
 
     def refresh_status(self, library_path: str) -> None:
         state = self.states[library_path]
@@ -84,6 +109,7 @@ class MigrationDashboard:
                 with self.lock:
                     state.running = False
                     state.busy = False
+                self._save_state()
                 return
             self.migrate_once(library_path)
             with self.lock:
@@ -98,10 +124,12 @@ class MigrationDashboard:
             state.running = True
             state.worker = threading.Thread(target=self._worker_loop, args=(library_path,), daemon=True)
             state.worker.start()
+        self._save_state()
 
     def pause(self, library_path: str) -> None:
         with self.lock:
             self.states[library_path].running = False
+        self._save_state()
 
     def run_once_async(self, library_path: str) -> None:
         with self.lock:
@@ -232,6 +260,7 @@ def render_dashboard(snapshot: Dict[str, Dict], embedding_model: str, active_mod
   <h2>Calibre Embedding Migration Dashboard</h2>
   <p>embedding_model=<code>{html.escape(embedding_model)}</code> active_model=<code>{html.escape(active_model)}</code> batch_size=<code>{batch_size}</code></p>
   <p>Auto-refresh: every 60 seconds.</p>
+  <p><code>Up To Date</code> is overall migrated chunks for this model, not just since dashboard restart.</p>
   <p>Set <code>OPENAI_TOKEN</code> in shell before starting this dashboard for migrate actions.</p>
   <table>
     <thead>
