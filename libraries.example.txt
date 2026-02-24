@@ -1,0 +1,4 @@
+# One absolute library path per line.
+# Lines starting with # are ignored.
+/Users/kbrooks/Dropbox/Books/Yoga Calibre Library
+/Users/kbrooks/Dropbox/Books/Calibre Travel Library
