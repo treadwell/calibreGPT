@@ -2,16 +2,28 @@
   {
     "id": "q1",
     "query": "books about tai chi and movement practice",
-    "expected_book_ids": []
+    "expected_book_ids": [
+      217,
+      261,
+      119
+    ]
   },
   {
     "id": "q2",
     "query": "guides for prompt engineering and llm workflows",
-    "expected_book_ids": []
+    "expected_book_ids": [
+      194,
+      247,
+      93
+    ]
   },
   {
     "id": "q3",
     "query": "travel books for italy with local context",
-    "expected_book_ids": []
+    "expected_book_ids": [
+      259,
+      75,
+      96
+    ]
   }
 ]
