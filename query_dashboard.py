@@ -147,11 +147,37 @@ def render_page(
           if (res.ok) {{
             showStatus('Opened file in default app.');
           }} else {{
-            showStatus('Open failed (' + res.status + ').');
+            return res.text().then(function(t) {{
+              showStatus('Open failed (' + res.status + '): ' + t);
+            }});
           }}
         }})
         .catch(function(err) {{
           showStatus('Open failed: ' + err);
+        }});
+    }}
+    function revealFile(url) {{
+      fetch(url)
+        .then(function(res) {{
+          if (res.ok) {{
+            showStatus('Revealed file in Finder.');
+          }} else {{
+            return res.text().then(function(t) {{
+              showStatus('Reveal failed (' + res.status + '): ' + t);
+            }});
+          }}
+        }})
+        .catch(function(err) {{
+          showStatus('Reveal failed: ' + err);
+        }});
+    }}
+    function copyPath(path) {{
+      navigator.clipboard.writeText(path)
+        .then(function() {{
+          showStatus('Copied path to clipboard.');
+        }})
+        .catch(function(err) {{
+          showStatus('Copy failed: ' + err);
         }});
     }}
     function setDrag(ev, fileUrl, filePath, fileName) {{
@@ -173,6 +199,7 @@ def make_handler(engine_path: str, libraries: List[str], active_model: str, batc
                 params = urllib.parse.parse_qs(parsed.query)
                 library = params.get("library", [""])[0]
                 book_id_raw = params.get("book_id", [""])[0]
+                action = params.get("action", ["open"])[0]
                 if library not in libraries:
                     self.send_response(400)
                     self.end_headers()
@@ -192,7 +219,15 @@ def make_handler(engine_path: str, libraries: List[str], active_model: str, batc
                     self.wfile.write(b"No file found for book")
                     return
                 target = mapping[book_id]["path"]
-                subprocess.Popen(["open", target])
+                cmd = ["open", target]
+                if action == "reveal":
+                    cmd = ["open", "-R", target]
+                proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                if proc.returncode != 0:
+                    self.send_response(500)
+                    self.end_headers()
+                    self.wfile.write((proc.stderr.strip() or "open failed").encode("utf-8"))
+                    return
                 self.send_response(204)
                 self.end_headers()
                 return
@@ -270,8 +305,11 @@ def make_handler(engine_path: str, libraries: List[str], active_model: str, batc
                             + "&book_id="
                             + str(row["book_id"])
                         )
+                        reveal_url = open_url + "&action=reveal"
                         row["actions_html"] = (
                             f'<button type="button" onclick="openFile({json.dumps(open_url)})">Open</button> '
+                            f'<button type="button" onclick="revealFile({json.dumps(reveal_url)})">Reveal</button> '
+                            f'<button type="button" onclick="copyPath({json.dumps(abs_path)})">Copy Path</button> '
                             f'| <a href="{file_url}">File Link</a> '
                             f'| <span draggable="true" ondragstart="setDrag(event, {json.dumps(file_url)}, {json.dumps(abs_path)}, {json.dumps(file_name)})" '
                             f'style="cursor:grab;text-decoration:underline;font-weight:600">Drag File</span>'
