@@ -9,3 +9,4 @@ tests/__pycache__/
 .migration_dashboard_state.json
 retrieval_validation_report.json
 retrieval_manual_review.json
+.env

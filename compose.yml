@@ -1,0 +1,64 @@
+services:
+  query-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: calibregpt-tools:local
+    command: ["/app/docker/run-query-ui.sh"]
+    environment:
+      ENGINE_PATH: /app/engine.py
+      LIBRARIES_FILE: ${LIBRARIES_FILE:-/app/libraries.docker.txt}
+      LIBRARY_PATH: ${LIBRARY_PATH:-}
+      ACTIVE_MODEL: ${ACTIVE_MODEL:-text-embedding-ada-002}
+      BATCH_SIZE: ${BATCH_SIZE:-64}
+      OPENAI_TOKEN: ${OPENAI_TOKEN:-}
+    volumes:
+      - .:/app
+      - ${CALIBRE_LIBRARIES_ROOT:-/Users/kbrooks/Dropbox/Books}:/books
+    ports:
+      - "${QUERY_UI_PORT:-8770}:8770"
+    restart: unless-stopped
+
+  migration-dashboard:
+    image: calibregpt-tools:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["/app/docker/run-migration-dashboard.sh"]
+    environment:
+      ENGINE_PATH: /app/engine.py
+      LIBRARIES_FILE: ${LIBRARIES_FILE:-/app/libraries.docker.txt}
+      LIBRARY_PATH: ${LIBRARY_PATH:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      ACTIVE_MODEL: ${ACTIVE_MODEL:-text-embedding-ada-002}
+      BATCH_SIZE: ${BATCH_SIZE:-64}
+      SLEEP_SECONDS: ${SLEEP_SECONDS:-2}
+      OPENAI_TOKEN: ${OPENAI_TOKEN:-}
+    volumes:
+      - .:/app
+      - ${CALIBRE_LIBRARIES_ROOT:-/Users/kbrooks/Dropbox/Books}:/books
+    ports:
+      - "${MIGRATION_DASHBOARD_PORT:-8765}:8765"
+    restart: unless-stopped
+
+  migration-worker:
+    image: calibregpt-tools:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: ["worker"]
+    command: ["/app/docker/run-migration-worker.sh"]
+    environment:
+      ENGINE_PATH: /app/engine.py
+      LIBRARIES_FILE: ${LIBRARIES_FILE:-/app/libraries.docker.txt}
+      LIBRARY_PATH: ${LIBRARY_PATH:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      ACTIVE_MODEL: ${ACTIVE_MODEL:-text-embedding-ada-002}
+      BATCH_SIZE: ${BATCH_SIZE:-64}
+      SLEEP_SECONDS: ${SLEEP_SECONDS:-2}
+      MAX_CYCLES: ${MAX_CYCLES:-0}
+      STATUS_ONLY: ${STATUS_ONLY:-0}
+      OPENAI_TOKEN: ${OPENAI_TOKEN:-}
+    volumes:
+      - .:/app
+      - ${CALIBRE_LIBRARIES_ROOT:-/Users/kbrooks/Dropbox/Books}:/books

@@ -1,0 +1,12 @@
+/books/AI Travel Library
+/books/CS6150
+/books/CS6460 Library
+/books/Calibre Travel Library
+/books/Fiction Library
+/books/GWU Library
+/books/Other Non-fiction
+/books/Pace Library
+/books/Yoga Calibre Library
+/books/calbreGPT
+/books/calibreGPT_test_lg
+/books/temp

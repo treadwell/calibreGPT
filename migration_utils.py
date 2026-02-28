@@ -118,6 +118,125 @@ def search_similar_chunks(
     )
 
 
+def search_books_by_tag(
+    library_path: str,
+    tag_query: str,
+    limit: int = 200,
+) -> List[Dict]:
+    query = tag_query.strip().lower()
+    if not query:
+        return []
+    paths = library_db_paths(library_path)
+    conn = sqlite3.connect(paths["metadata"])
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+                select
+                    b.id as book_id,
+                    b.title as title,
+                    coalesce(group_concat(distinct a.name), '') as author,
+                    coalesce(group_concat(distinct t.name), '') as matched_tags,
+                    count(distinct t.id) as tag_hits
+                from books b
+                join books_tags_link btl on btl.book = b.id
+                join tags t on t.id = btl.tag
+                left join books_authors_link bal on bal.book = b.id
+                left join authors a on a.id = bal.author
+                where lower(t.name) like ?
+                group by b.id, b.title
+                order by tag_hits desc, b.title collate nocase asc
+                limit ?
+            """,
+            (f"%{query}%", int(limit)),
+        )
+        rows = []
+        for book_id, title, author, matched_tags, tag_hits in cursor.fetchall():
+            rows.append(
+                {
+                    "book_id": int(book_id),
+                    "title": title or "",
+                    "author": author or "",
+                    "matched_tags": matched_tags or "",
+                    "tag_hits": int(tag_hits or 0),
+                }
+            )
+        return rows
+    finally:
+        conn.close()
+
+
+def load_books_with_tags(
+    library_path: str,
+    limit: int = 5000,
+) -> List[Dict]:
+    paths = library_db_paths(library_path)
+    conn = sqlite3.connect(paths["metadata"])
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+                select
+                    b.id as book_id,
+                    b.title as title,
+                    coalesce(group_concat(distinct a.name), '') as author,
+                    coalesce(group_concat(distinct t.name), '') as tags
+                from books b
+                left join books_authors_link bal on bal.book = b.id
+                left join authors a on a.id = bal.author
+                left join books_tags_link btl on btl.book = b.id
+                left join tags t on t.id = btl.tag
+                group by b.id, b.title
+                order by b.title collate nocase asc
+                limit ?
+            """,
+            (int(limit),),
+        )
+        rows = []
+        for book_id, title, author, tags in cursor.fetchall():
+            rows.append(
+                {
+                    "book_id": int(book_id),
+                    "title": title or "",
+                    "author": author or "",
+                    "tags": [x.strip() for x in (tags or "").split(",") if x and x.strip()],
+                }
+            )
+        return rows
+    finally:
+        conn.close()
+
+
+def load_tags_for_books(
+    library_path: str,
+    book_ids: List[int],
+) -> Dict[int, List[str]]:
+    if not book_ids:
+        return {}
+    paths = library_db_paths(library_path)
+    conn = sqlite3.connect(paths["metadata"])
+    try:
+        cursor = conn.cursor()
+        placeholders = ",".join(["?" for _ in book_ids])
+        cursor.execute(
+            f"""
+                select b.id as book_id, coalesce(group_concat(distinct t.name), '') as tags
+                from books b
+                left join books_tags_link btl on btl.book = b.id
+                left join tags t on t.id = btl.tag
+                where b.id in ({placeholders})
+                group by b.id
+            """,
+            [int(x) for x in book_ids],
+        )
+        out: Dict[int, List[str]] = {}
+        for book_id, tags in cursor.fetchall():
+            out[int(book_id)] = [x.strip() for x in (tags or "").split(",") if x and x.strip()]
+        return out
+    finally:
+        conn.close()
+
+
 def load_libraries(libraries_file: str, explicit: List[str]) -> List[str]:
     paths: List[str] = []
     if libraries_file:

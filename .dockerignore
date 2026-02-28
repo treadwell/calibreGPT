@@ -1,0 +1,15 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.DS_Store
+*.log
+*.db
+*.idx
+*.zip
+retrieval_validation_report.json
+retrieval_manual_review.json

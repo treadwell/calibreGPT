@@ -1,0 +1,5 @@
+# Example container-visible library paths.
+# These should match the bind mount root in compose.yml:
+#   ${CALIBRE_LIBRARIES_ROOT}:/books
+#
+# /books/calibreGPT_test_lg

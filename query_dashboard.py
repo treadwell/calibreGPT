@@ -4,14 +4,15 @@ import argparse
 import html
 import json
 import os
+import re
 import subprocess
 import statistics
 import urllib.parse
 from collections import defaultdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
-from migration_utils import load_libraries, resolve_book_open_paths, search_similar_chunks
+from migration_utils import load_books_with_tags, load_libraries, load_tags_for_books, resolve_book_open_paths, search_similar_chunks
 
 
 def aggregate_results(results: List[Dict]) -> List[Dict]:
@@ -55,15 +56,124 @@ def apply_elbow_cutoff(items: List[Dict], min_results: int = 5) -> List[Dict]:
     return items[:cutoff]
 
 
+TOKEN_RE = re.compile(r'\s*(\(|\)|"[^"]*"|\'[^\']*\'|AND|OR|NOT|[^()\s]+)\s*', re.IGNORECASE)
+
+
+def tokenize_tag_expr(expr: str) -> List[str]:
+    tokens: List[str] = []
+    pos = 0
+    while pos < len(expr):
+        match = TOKEN_RE.match(expr, pos)
+        if not match:
+            raise ValueError(f"Invalid token near: {expr[pos:pos+20]}")
+        token = match.group(1)
+        pos = match.end()
+        if token and token.strip():
+            tokens.append(token)
+    return tokens
+
+
+def normalize_term(token: str) -> str:
+    value = token.strip()
+    if len(value) >= 2 and ((value[0] == '"' and value[-1] == '"') or (value[0] == "'" and value[-1] == "'")):
+        value = value[1:-1]
+    return value.strip().lower()
+
+
+def parse_tag_expression(expr: str):
+    tokens = tokenize_tag_expr(expr)
+    if not tokens:
+        raise ValueError("Tag expression is empty.")
+    index = 0
+
+    def parse_expr():
+        nonlocal index
+        node = parse_term()
+        while index < len(tokens) and tokens[index].upper() == "OR":
+            index += 1
+            node = ("OR", node, parse_term())
+        return node
+
+    def parse_term():
+        nonlocal index
+        node = parse_factor()
+        while index < len(tokens) and tokens[index].upper() == "AND":
+            index += 1
+            node = ("AND", node, parse_factor())
+        return node
+
+    def parse_factor():
+        nonlocal index
+        if index >= len(tokens):
+            raise ValueError("Unexpected end of tag expression.")
+        tok = tokens[index]
+        tok_upper = tok.upper()
+        if tok_upper == "NOT":
+            index += 1
+            return ("NOT", parse_factor())
+        if tok == "(":
+            index += 1
+            node = parse_expr()
+            if index >= len(tokens) or tokens[index] != ")":
+                raise ValueError("Missing closing ')' in tag expression.")
+            index += 1
+            return node
+        if tok in (")", "AND", "OR"):
+            raise ValueError(f"Unexpected token: {tok}")
+        index += 1
+        return ("TERM", normalize_term(tok))
+
+    ast = parse_expr()
+    if index != len(tokens):
+        raise ValueError(f"Unexpected token: {tokens[index]}")
+    return ast
+
+
+def eval_tag_ast(ast, tags_lower: List[str]) -> bool:
+    kind = ast[0]
+    if kind == "TERM":
+        needle = ast[1]
+        return any(needle in tag for tag in tags_lower)
+    if kind == "NOT":
+        return not eval_tag_ast(ast[1], tags_lower)
+    if kind == "AND":
+        return eval_tag_ast(ast[1], tags_lower) and eval_tag_ast(ast[2], tags_lower)
+    if kind == "OR":
+        return eval_tag_ast(ast[1], tags_lower) or eval_tag_ast(ast[2], tags_lower)
+    raise ValueError(f"Unknown AST node: {kind}")
+
+
+def apply_tag_boolean_filter(rows: List[Dict], tag_map: Dict[int, List[str]], expression: str) -> Tuple[List[Dict], str]:
+    expr = expression.strip()
+    if not expr:
+        for row in rows:
+            tags = tag_map.get(int(row["book_id"]), [])
+            row["tags_display"] = ", ".join(tags)
+        return rows, ""
+    ast = parse_tag_expression(expr)
+    filtered = []
+    for row in rows:
+        tags = tag_map.get(int(row["book_id"]), [])
+        tags_lower = [x.lower() for x in tags]
+        if eval_tag_ast(ast, tags_lower):
+            row["tags_display"] = ", ".join(tags)
+            filtered.append(row)
+    return filtered, ""
+
+
 def render_page(
     libraries: List[str],
     selected_library: str,
     embedding_model: str,
     top_k: int,
     query: str,
+    semantic_tag_expr: str,
+    tag_expr: str,
     use_elbow: bool,
-    result_rows: List[Dict],
-    error: str,
+    semantic_rows: List[Dict],
+    tag_rows: List[Dict],
+    semantic_error: str,
+    tag_error: str,
 ) -> str:
     library_options = "\n".join(
         [
@@ -71,10 +181,10 @@ def render_page(
             for lib in libraries
         ]
     )
-    rows = []
-    for row in result_rows:
+    semantic_result_rows = []
+    for row in semantic_rows:
         calibre_filter = f"id:{row['book_id']}"
-        rows.append(
+        semantic_result_rows.append(
             f"""
             <tr>
               <td>{row['book_id']}</td>
@@ -82,14 +192,32 @@ def render_page(
               <td>{html.escape(row['author'])}</td>
               <td>{row['chunk_hits']}</td>
               <td>{row['best_distance']:.4f}</td>
+              <td><code>{html.escape(row.get('tags_display', ''))}</code></td>
               <td><code>{html.escape(calibre_filter)}</code></td>
               <td>{row.get('actions_html', '')}</td>
               <td><code>{html.escape(row['sample_excerpt'])}</code></td>
             </tr>
             """
         )
+    tag_result_rows = []
+    for row in tag_rows:
+        calibre_filter = f"id:{row['book_id']}"
+        tag_result_rows.append(
+            f"""
+            <tr>
+              <td>{row['book_id']}</td>
+              <td>{html.escape(row['title'])}</td>
+              <td>{html.escape(row['author'])}</td>
+              <td>{row['tag_hits']}</td>
+              <td><code>{html.escape(row.get('tags_display', ''))}</code></td>
+              <td><code>{html.escape(calibre_filter)}</code></td>
+              <td>{row.get('actions_html', '')}</td>
+            </tr>
+            """
+        )
     checked = "checked" if use_elbow else ""
-    error_html = f'<p style="color:#b00"><code>{html.escape(error)}</code></p>' if error else ""
+    semantic_error_html = f'<p style="color:#b00"><code>{html.escape(semantic_error)}</code></p>' if semantic_error else ""
+    tag_error_html = f'<p style="color:#b00"><code>{html.escape(tag_error)}</code></p>' if tag_error else ""
     return f"""<!doctype html>
 <html>
 <head>
@@ -121,16 +249,36 @@ def render_page(
     <input type="text" name="top_k" value="{top_k}" />
     <label>Query</label>
     <input type="text" name="query" value="{html.escape(query)}" />
+    <label>Tag Boolean Filter (optional)</label>
+    <input type="text" name="semantic_tag_expr" value="{html.escape(semantic_tag_expr)}" placeholder='example: meetings AND NOT "workshop"' />
     <label><input type="checkbox" name="use_elbow" value="1" {checked}/> Apply elbow cutoff to likely matches</label>
     <button type="submit">Search</button>
   </form>
-  {error_html}
+  {semantic_error_html}
   <table>
     <thead>
-      <tr><th>Book ID</th><th>Title</th><th>Author</th><th>Chunk Hits</th><th>Best Distance</th><th>Calibre Filter</th><th>Actions</th><th>Excerpt</th></tr>
+      <tr><th>Book ID</th><th>Title</th><th>Author</th><th>Chunk Hits</th><th>Best Distance</th><th>Tags</th><th>Calibre Filter</th><th>Actions</th><th>Excerpt</th></tr>
     </thead>
     <tbody>
-      {''.join(rows)}
+      {''.join(semantic_result_rows)}
+    </tbody>
+  </table>
+  <h2 style="margin-top:28px">Tag Search</h2>
+  <form method="post" action="/search-tag">
+    <label>Library</label>
+    <select name="library">{library_options}</select>
+    <label>Boolean Tag Query</label>
+    <input type="text" name="tag_expr" value="{html.escape(tag_expr)}" placeholder='example: meetings AND (project OR planning) AND NOT archived' />
+    <p style="margin:6px 0;color:#555">Use <code>AND</code>, <code>OR</code>, <code>NOT</code>, parentheses, and quotes for multi-word tags.</p>
+    <button type="submit">Search Tags</button>
+  </form>
+  {tag_error_html}
+  <table>
+    <thead>
+      <tr><th>Book ID</th><th>Title</th><th>Author</th><th>Tag Count</th><th>Tags</th><th>Calibre Filter</th><th>Actions</th></tr>
+    </thead>
+    <tbody>
+      {''.join(tag_result_rows)}
     </tbody>
   </table>
   <p id="status" style="margin-top:10px;color:#444"></p>
@@ -192,6 +340,37 @@ def render_page(
 
 
 def make_handler(engine_path: str, libraries: List[str], active_model: str, batch_size: int):
+    def attach_actions(library_path: str, rows: List[Dict]) -> None:
+        book_map = resolve_book_open_paths(library_path, [r["book_id"] for r in rows])
+        for row in rows:
+            file_info = book_map.get(int(row["book_id"]))
+            if not file_info:
+                row["actions_html"] = ""
+                continue
+            abs_path = file_info["path"]
+            file_name = os.path.basename(abs_path)
+            file_url = "file://" + urllib.parse.quote(abs_path)
+            open_url = (
+                "/open?library="
+                + urllib.parse.quote(library_path, safe="")
+                + "&book_id="
+                + str(row["book_id"])
+            )
+            reveal_url = open_url + "&action=reveal"
+            js_open = html.escape(json.dumps(open_url), quote=True)
+            js_reveal = html.escape(json.dumps(reveal_url), quote=True)
+            js_path = html.escape(json.dumps(abs_path), quote=True)
+            js_file_url = html.escape(json.dumps(file_url), quote=True)
+            js_file_name = html.escape(json.dumps(file_name), quote=True)
+            row["actions_html"] = (
+                f'<button type="button" onclick="openFile({js_open})">Open</button> '
+                f'<button type="button" onclick="revealFile({js_reveal})">Reveal</button> '
+                f'<button type="button" onclick="copyPath({js_path})">Copy Path</button> '
+                f'| <a href="{file_url}">File Link</a> '
+                f'| <span draggable="true" ondragstart="setDrag(event, {js_file_url}, {js_path}, {js_file_name})" '
+                f'style="cursor:grab;text-decoration:underline;font-weight:600">Drag File</span>'
+            )
+
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             parsed = urllib.parse.urlparse(self.path)
@@ -238,12 +417,16 @@ def make_handler(engine_path: str, libraries: List[str], active_model: str, batc
             page = render_page(
                 libraries=libraries,
                 selected_library=libraries[0],
-                embedding_model="text-embedding-3-small",
+                embedding_model="text-embedding-ada-002",
                 top_k=50,
                 query="",
+                semantic_tag_expr="",
+                tag_expr="",
                 use_elbow=False,
-                result_rows=[],
-                error="",
+                semantic_rows=[],
+                tag_rows=[],
+                semantic_error="",
+                tag_error="",
             )
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -251,7 +434,7 @@ def make_handler(engine_path: str, libraries: List[str], active_model: str, batc
             self.wfile.write(page.encode("utf-8"))
 
         def do_POST(self):
-            if self.path != "/search":
+            if self.path not in ("/search", "/search-tag"):
                 self.send_response(404)
                 self.end_headers()
                 return
@@ -260,8 +443,10 @@ def make_handler(engine_path: str, libraries: List[str], active_model: str, batc
             data = urllib.parse.parse_qs(raw)
 
             selected_library = data.get("library", [libraries[0]])[0]
-            embedding_model = data.get("embedding_model", ["text-embedding-3-small"])[0]
+            embedding_model = data.get("embedding_model", ["text-embedding-ada-002"])[0]
             query = data.get("query", [""])[0].strip()
+            semantic_tag_expr = data.get("semantic_tag_expr", [""])[0].strip()
+            tag_expr = data.get("tag_expr", [""])[0].strip()
             use_elbow = data.get("use_elbow", ["0"])[0] == "1"
             try:
                 top_k = int(data.get("top_k", ["50"])[0])
@@ -270,59 +455,59 @@ def make_handler(engine_path: str, libraries: List[str], active_model: str, batc
             except ValueError:
                 top_k = 50
 
-            rows = []
-            error = ""
+            semantic_rows = []
+            tag_rows = []
+            semantic_error = ""
+            tag_error = ""
             if selected_library not in libraries:
-                error = "Invalid library selection."
                 selected_library = libraries[0]
-            elif not query:
-                error = "Enter a query."
+                if self.path == "/search":
+                    semantic_error = "Invalid library selection."
+                else:
+                    tag_error = "Invalid library selection."
+            elif self.path == "/search":
+                if not query:
+                    semantic_error = "Enter a query."
+                else:
+                    try:
+                        raw_results = search_similar_chunks(
+                            engine_path=engine_path,
+                            library_path=selected_library,
+                            embedding_model=embedding_model,
+                            active_model=active_model,
+                            batch_size=batch_size,
+                            query=query,
+                            match_count=top_k,
+                            skip_sync=True,
+                        )
+                        semantic_rows = aggregate_results(raw_results)
+                        tag_map = load_tags_for_books(selected_library, [int(r["book_id"]) for r in semantic_rows])
+                        semantic_rows, _ = apply_tag_boolean_filter(semantic_rows, tag_map, semantic_tag_expr)
+                        attach_actions(selected_library, semantic_rows)
+                        if use_elbow:
+                            semantic_rows = apply_elbow_cutoff(semantic_rows)
+                    except Exception as exc:
+                        semantic_error = str(exc)
             else:
-                try:
-                    raw_results = search_similar_chunks(
-                        engine_path=engine_path,
-                        library_path=selected_library,
-                        embedding_model=embedding_model,
-                        active_model=active_model,
-                        batch_size=batch_size,
-                        query=query,
-                        match_count=top_k,
-                        skip_sync=True,
-                    )
-                    rows = aggregate_results(raw_results)
-                    book_map = resolve_book_open_paths(selected_library, [r["book_id"] for r in rows])
-                    for row in rows:
-                        file_info = book_map.get(int(row["book_id"]))
-                        if not file_info:
-                            row["actions_html"] = ""
-                            continue
-                        abs_path = file_info["path"]
-                        file_name = os.path.basename(abs_path)
-                        file_url = "file://" + urllib.parse.quote(abs_path)
-                        open_url = (
-                            "/open?library="
-                            + urllib.parse.quote(selected_library, safe="")
-                            + "&book_id="
-                            + str(row["book_id"])
-                        )
-                        reveal_url = open_url + "&action=reveal"
-                        js_open = html.escape(json.dumps(open_url), quote=True)
-                        js_reveal = html.escape(json.dumps(reveal_url), quote=True)
-                        js_path = html.escape(json.dumps(abs_path), quote=True)
-                        js_file_url = html.escape(json.dumps(file_url), quote=True)
-                        js_file_name = html.escape(json.dumps(file_name), quote=True)
-                        row["actions_html"] = (
-                            f'<button type="button" onclick="openFile({js_open})">Open</button> '
-                            f'<button type="button" onclick="revealFile({js_reveal})">Reveal</button> '
-                            f'<button type="button" onclick="copyPath({js_path})">Copy Path</button> '
-                            f'| <a href="{file_url}">File Link</a> '
-                            f'| <span draggable="true" ondragstart="setDrag(event, {js_file_url}, {js_path}, {js_file_name})" '
-                            f'style="cursor:grab;text-decoration:underline;font-weight:600">Drag File</span>'
-                        )
-                    if use_elbow:
-                        rows = apply_elbow_cutoff(rows)
-                except Exception as exc:
-                    error = str(exc)
+                if not tag_expr:
+                    tag_error = "Enter a boolean tag query."
+                else:
+                    try:
+                        books = load_books_with_tags(selected_library, limit=10000)
+                        tag_rows = [
+                            {
+                                "book_id": int(r["book_id"]),
+                                "title": r.get("title", ""),
+                                "author": r.get("author", ""),
+                                "tag_hits": len(r.get("tags", [])),
+                            }
+                            for r in books
+                        ]
+                        tag_map = {int(r["book_id"]): r.get("tags", []) for r in books}
+                        tag_rows, _ = apply_tag_boolean_filter(tag_rows, tag_map, tag_expr)
+                        attach_actions(selected_library, tag_rows)
+                    except Exception as exc:
+                        tag_error = str(exc)
 
             page = render_page(
                 libraries=libraries,
@@ -330,9 +515,13 @@ def make_handler(engine_path: str, libraries: List[str], active_model: str, batc
                 embedding_model=embedding_model,
                 top_k=top_k,
                 query=query,
+                semantic_tag_expr=semantic_tag_expr,
+                tag_expr=tag_expr,
                 use_elbow=use_elbow,
-                result_rows=rows,
-                error=error,
+                semantic_rows=semantic_rows,
+                tag_rows=tag_rows,
+                semantic_error=semantic_error,
+                tag_error=tag_error,
             )
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
