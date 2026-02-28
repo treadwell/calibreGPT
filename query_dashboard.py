@@ -5,6 +5,7 @@ import html
 import json
 import os
 import re
+import shutil
 import subprocess
 import statistics
 import urllib.parse
@@ -228,6 +229,9 @@ def render_page(
     form {{ background:#fff; border:1px solid #ddd; padding: 12px; margin-bottom: 16px; }}
     label {{ display:block; margin: 8px 0 4px; }}
     input[type=text], select {{ width: 100%; padding: 8px; }}
+    .bulk-controls {{ background:#fff; border:1px solid #ddd; padding:10px; margin: 10px 0 12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }}
+    .bulk-controls button {{ padding: 6px 10px; }}
+    .bulk-drag {{ display:inline-block; padding:6px 10px; border:1px solid #888; border-radius:4px; background:#f1f1ee; cursor:grab; user-select:none; }}
     table {{ width: 100%; border-collapse: collapse; background:#fff; }}
     th, td {{ border: 1px solid #ddd; padding: 8px; vertical-align: top; }}
     th {{ background: #e8ecdf; text-align: left; }}
@@ -255,6 +259,11 @@ def render_page(
     <button type="submit">Search</button>
   </form>
   {semantic_error_html}
+  <div class="bulk-controls">
+    <button type="button" onclick="setSelectionForTable('semantic-results', true)">Select All Semantic</button>
+    <button type="button" onclick="setSelectionForTable('semantic-results', false)">Clear Semantic</button>
+    <span id="bulkDragSemantic" class="bulk-drag" draggable="true" ondragstart="setBulkDrag(event, 'semantic-results')">Drag Selected Semantic Files</span>
+  </div>
   <table>
     <thead>
       <tr><th>Book ID</th><th>Title</th><th>Author</th><th>Chunk Hits</th><th>Best Distance</th><th>Tags</th><th>Calibre Filter</th><th>Actions</th><th>Excerpt</th></tr>
@@ -273,6 +282,11 @@ def render_page(
     <button type="submit">Search Tags</button>
   </form>
   {tag_error_html}
+  <div class="bulk-controls">
+    <button type="button" onclick="setSelectionForTable('tag-results', true)">Select All Tag Results</button>
+    <button type="button" onclick="setSelectionForTable('tag-results', false)">Clear Tag Results</button>
+    <span id="bulkDragTag" class="bulk-drag" draggable="true" ondragstart="setBulkDrag(event, 'tag-results')">Drag Selected Tag Files</span>
+  </div>
   <table>
     <thead>
       <tr><th>Book ID</th><th>Title</th><th>Author</th><th>Tag Count</th><th>Tags</th><th>Calibre Filter</th><th>Actions</th></tr>
@@ -304,6 +318,25 @@ def render_page(
           showStatus('Open failed: ' + err);
         }});
     }}
+    function openFileLink(fileUrl) {{
+      try {{
+        var a = document.createElement('a');
+        a.href = fileUrl;
+        a.target = '_self';
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        showStatus('Opening file link.');
+      }} catch (err) {{
+        try {{
+          window.location.href = fileUrl;
+          showStatus('Opening file link.');
+        }} catch (innerErr) {{
+          showStatus('Open failed: ' + innerErr);
+        }}
+      }}
+    }}
     function revealFile(url) {{
       fetch(url)
         .then(function(res) {{
@@ -334,12 +367,58 @@ def render_page(
       ev.dataTransfer.effectAllowed = 'copy';
       showStatus('Dragging: ' + fileName);
     }}
+    function selectedCheckboxes(tableKind) {{
+      return Array.prototype.slice.call(document.querySelectorAll('input.file-select[data-table=\"' + tableKind + '\"]:checked'));
+    }}
+    function setSelectionForTable(tableKind, value) {{
+      var boxes = document.querySelectorAll('input.file-select[data-table=\"' + tableKind + '\"]');
+      boxes.forEach(function(cb) {{
+        cb.checked = value;
+      }});
+      showStatus((value ? 'Selected ' : 'Cleared ') + boxes.length + ' files in ' + tableKind + '.');
+    }}
+    function setBulkDrag(ev, tableKind) {{
+      var selected = selectedCheckboxes(tableKind);
+      if (!selected.length) {{
+        ev.preventDefault();
+        showStatus('Select one or more files first.');
+        return;
+      }}
+      var urls = selected.map(function(cb) {{ return cb.dataset.fileUrl; }});
+      var paths = selected.map(function(cb) {{ return cb.dataset.filePath; }});
+      var names = selected.map(function(cb) {{ return cb.dataset.fileName; }});
+      ev.dataTransfer.setData('text/uri-list', urls.join('\\r\\n'));
+      ev.dataTransfer.setData('text/plain', paths.join('\\n'));
+      ev.dataTransfer.effectAllowed = 'copy';
+      showStatus('Dragging ' + selected.length + ' files: ' + names.slice(0, 3).join(', ') + (names.length > 3 ? ' ...' : ''));
+    }}
+    document.addEventListener('click', function(ev) {{
+      var btn = ev.target.closest('button.open-file-link');
+      if (!btn) {{
+        return;
+      }}
+      var fileUrl = btn.getAttribute('data-file-url') || '';
+      if (!fileUrl) {{
+        showStatus('Open failed: missing file URL.');
+        return;
+      }}
+      openFileLink(fileUrl);
+    }});
   </script>
 </body>
 </html>"""
 
 
 def make_handler(engine_path: str, libraries: List[str], active_model: str, batch_size: int):
+    can_use_open_cmd = shutil.which("open") is not None
+    container_library_root = os.environ.get("CONTAINER_LIBRARY_ROOT", "/books").rstrip("/")
+    host_library_root = os.environ.get("HOST_LIBRARY_ROOT", "").rstrip("/")
+
+    def host_visible_path(path: str) -> str:
+        if host_library_root and path.startswith(container_library_root + "/"):
+            return host_library_root + path[len(container_library_root):]
+        return path
+
     def attach_actions(library_path: str, rows: List[Dict]) -> None:
         book_map = resolve_book_open_paths(library_path, [r["book_id"] for r in rows])
         for row in rows:
@@ -348,8 +427,9 @@ def make_handler(engine_path: str, libraries: List[str], active_model: str, batc
                 row["actions_html"] = ""
                 continue
             abs_path = file_info["path"]
-            file_name = os.path.basename(abs_path)
-            file_url = "file://" + urllib.parse.quote(abs_path)
+            visible_path = host_visible_path(abs_path)
+            file_name = os.path.basename(visible_path)
+            file_url = "file://" + urllib.parse.quote(visible_path)
             open_url = (
                 "/open?library="
                 + urllib.parse.quote(library_path, safe="")
@@ -359,12 +439,25 @@ def make_handler(engine_path: str, libraries: List[str], active_model: str, batc
             reveal_url = open_url + "&action=reveal"
             js_open = html.escape(json.dumps(open_url), quote=True)
             js_reveal = html.escape(json.dumps(reveal_url), quote=True)
-            js_path = html.escape(json.dumps(abs_path), quote=True)
+            js_path = html.escape(json.dumps(visible_path), quote=True)
             js_file_url = html.escape(json.dumps(file_url), quote=True)
             js_file_name = html.escape(json.dumps(file_name), quote=True)
+            data_file_url = html.escape(file_url, quote=True)
+            data_file_path = html.escape(visible_path, quote=True)
+            data_file_name = html.escape(file_name, quote=True)
+            table_kind = "semantic-results" if "chunk_hits" in row else "tag-results"
+            if can_use_open_cmd:
+                action_controls = (
+                    f'<button type="button" onclick="openFile({js_open})">Open</button> '
+                    f'<button type="button" onclick="revealFile({js_reveal})">Reveal</button> '
+                )
+            else:
+                action_controls = f'<button type="button" class="open-file-link" data-file-url="{data_file_url}">Open</button> '
             row["actions_html"] = (
-                f'<button type="button" onclick="openFile({js_open})">Open</button> '
-                f'<button type="button" onclick="revealFile({js_reveal})">Reveal</button> '
+                f'<label style="display:inline-flex;align-items:center;gap:4px;margin-right:8px;">'
+                f'<input type="checkbox" class="file-select" data-table="{table_kind}" data-file-url="{data_file_url}" data-file-path="{data_file_path}" data-file-name="{data_file_name}" />'
+                f'Select</label> '
+                f'{action_controls}'
                 f'<button type="button" onclick="copyPath({js_path})">Copy Path</button> '
                 f'| <a href="{file_url}">File Link</a> '
                 f'| <span draggable="true" ondragstart="setDrag(event, {js_file_url}, {js_path}, {js_file_name})" '
@@ -375,6 +468,11 @@ def make_handler(engine_path: str, libraries: List[str], active_model: str, batc
         def do_GET(self):
             parsed = urllib.parse.urlparse(self.path)
             if parsed.path == "/open":
+                if not can_use_open_cmd:
+                    self.send_response(501)
+                    self.end_headers()
+                    self.wfile.write(b"open command is unavailable in this container. Use File Link or Drag File.")
+                    return
                 params = urllib.parse.parse_qs(parsed.query)
                 library = params.get("library", [""])[0]
                 book_id_raw = params.get("book_id", [""])[0]
@@ -401,7 +499,13 @@ def make_handler(engine_path: str, libraries: List[str], active_model: str, batc
                 cmd = ["open", target]
                 if action == "reveal":
                     cmd = ["open", "-R", target]
-                proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                try:
+                    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                except FileNotFoundError:
+                    self.send_response(501)
+                    self.end_headers()
+                    self.wfile.write(b"open command unavailable on this host.")
+                    return
                 if proc.returncode != 0:
                     self.send_response(500)
                     self.end_headers()

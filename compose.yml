@@ -9,6 +9,8 @@ services:
       ENGINE_PATH: /app/engine.py
       LIBRARIES_FILE: ${LIBRARIES_FILE:-/app/libraries.docker.txt}
       LIBRARY_PATH: ${LIBRARY_PATH:-}
+      CONTAINER_LIBRARY_ROOT: /books
+      HOST_LIBRARY_ROOT: ${CALIBRE_LIBRARIES_ROOT:-/Users/kbrooks/Dropbox/Books}
       ACTIVE_MODEL: ${ACTIVE_MODEL:-text-embedding-ada-002}
       BATCH_SIZE: ${BATCH_SIZE:-64}
       OPENAI_TOKEN: ${OPENAI_TOKEN:-}

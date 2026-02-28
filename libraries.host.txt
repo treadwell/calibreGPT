@@ -1,0 +1,12 @@
+/Users/kbrooks/Dropbox/Books/AI Travel Library
+/Users/kbrooks/Dropbox/Books/CS6150
+/Users/kbrooks/Dropbox/Books/CS6460 Library
+/Users/kbrooks/Dropbox/Books/Calibre Travel Library
+/Users/kbrooks/Dropbox/Books/Fiction Library
+/Users/kbrooks/Dropbox/Books/GWU Library
+/Users/kbrooks/Dropbox/Books/Other Non-fiction
+/Users/kbrooks/Dropbox/Books/Pace Library
+/Users/kbrooks/Dropbox/Books/Yoga Calibre Library
+/Users/kbrooks/Dropbox/Books/calbreGPT
+/Users/kbrooks/Dropbox/Books/calibreGPT_test_lg
+/Users/kbrooks/Dropbox/Books/temp
